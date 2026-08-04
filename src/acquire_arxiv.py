@@ -8,6 +8,7 @@ Metadata comes from the API (ground truth), never parsed from the PDF.
 from __future__ import annotations
 
 import argparse
+import collections
 import json
 import time
 import xml.etree.ElementTree as ET
@@ -167,16 +168,34 @@ def _existing_ids() -> set[str]:
     return {p.stem for p in config.RAW_DIR.glob("*.pdf")}
 
 
+def _existing_bucket_counts() -> collections.Counter:
+    """How many already-downloaded papers each bucket has, from stored metadata.
+    Seeds each bucket's `got` so a rerun only fetches the shortfall (idempotent)."""
+    counts: collections.Counter = collections.Counter()
+    for m in config.RAW_DIR.glob("*.meta.json"):
+        try:
+            counts[json.loads(m.read_text(encoding="utf-8")).get("query_bucket")] += 1
+        except Exception:  # noqa: BLE001
+            pass
+    return counts
+
+
 def acquire(limit: int | None = None) -> None:
     seen = _existing_ids()
+    bucket_counts = _existing_bucket_counts()
     print(f"Starting acquisition. {len(seen)} papers already in data/raw/.")
     totals = {"downloaded": 0, "skipped": 0, "failed": 0}
 
     for bucket in QUERY_PLAN:
         cats = bucket.get("categories", DEFAULT_CATEGORY_FILTER)
         full_query = f'({bucket["query"]}) AND {cats}'
-        got, start, page_size = 0, 0, 50
-        print(f"\n=== bucket '{bucket['name']}' (target {bucket['target']}) ===")
+        got = bucket_counts.get(bucket["name"], 0)  # seed from existing = idempotent rerun
+        start, page_size = 0, 50
+        if got >= bucket["target"]:
+            print(f"\n=== bucket '{bucket['name']}': have {got} >= target "
+                  f"{bucket['target']}, skipping ===")
+            continue
+        print(f"\n=== bucket '{bucket['name']}' (have {got}/{bucket['target']}) ===")
 
         while got < bucket["target"]:
             if limit is not None and totals["downloaded"] >= limit:
