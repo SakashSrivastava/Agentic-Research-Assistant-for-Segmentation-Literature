@@ -1,28 +1,40 @@
 """QA: verify parsed JSON faithfully represents the source PDFs.
 
-Three checks: word coverage vs raw PDF text, table-cell fidelity (values present
-verbatim in source), and that needs_ocr papers really are text-sparse.
-
+Full run saves a report to data/parse_validation.json and prints a summary:
   python -m src.validate_parse
+
+Match a single paper against its PDF (coverage + any missing words):
+  python -m src.validate_parse --paper arxiv_1808.05238
 """
 from __future__ import annotations
 
+import argparse
 import json
 import random
 import re
 import statistics
+import sys
 
 import fitz  # PyMuPDF
 
 from src import config, manifest
 
 fitz.TOOLS.mupdf_display_errors(False)
+try:  # Windows consoles default to cp1252 and choke on PDF Unicode
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:  # noqa: BLE001
+    pass
 
-COVERAGE_MIN = 0.95   # a paper below this has lost real content
+COVERAGE_MIN = 0.95
+REPORT_PATH = config.DATA_DIR / "parse_validation.json"
 
 
 def _words(s: str) -> set[str]:
     return set(re.findall(r"[a-z0-9]+", s.lower()))
+
+
+def _numbers(s: str) -> list[str]:
+    return re.findall(r"\d+\.?\d+", s)
 
 
 def _parsed(pid: str) -> dict:
@@ -38,42 +50,38 @@ def _parsed_text(parsed: dict) -> str:
     return " ".join(out)
 
 
-def check_coverage() -> bool:
-    results = []
+def _raw_text(pid: str) -> str:
+    doc = fitz.open(config.RAW_DIR / f"{pid}.pdf")
+    raw = " ".join(p.get_text() for p in doc)
+    doc.close()
+    return raw
+
+
+def check_coverage() -> dict:
+    per_paper = {}
     for row in manifest.active_papers():
         pid = row["paper_id"]
-        our_w = _words(_parsed_text(_parsed(pid)))
-        doc = fitz.open(config.RAW_DIR / f"{pid}.pdf")
-        raw_w = _words(" ".join(p.get_text() for p in doc))
-        doc.close()
+        our_w, raw_w = _words(_parsed_text(_parsed(pid))), _words(_raw_text(pid))
         if raw_w:
-            results.append((pid, len(our_w & raw_w) / len(raw_w)))
-
-    covs = [c for _, c in results]
-    low = sorted([r for r in results if r[1] < COVERAGE_MIN], key=lambda x: x[1])
-    print("=== TEXT COVERAGE (raw PDF words present in parsed JSON) ===")
-    print(f"  papers      : {len(results)}")
-    print(f"  mean {statistics.mean(covs):.3f} | median {statistics.median(covs):.3f} "
-          f"| min {min(covs):.3f}")
-    print(f"  below {COVERAGE_MIN}: {len(low)}")
-    for pid, c in low[:20]:
-        print(f"    {pid}  cov={c:.3f}")
-    return not low
-
-
-def _numbers(s: str) -> list[str]:
-    return re.findall(r"\d+\.?\d+", s)
+            per_paper[pid] = round(len(our_w & raw_w) / len(raw_w), 4)
+    covs = list(per_paper.values())
+    below = {p: c for p, c in per_paper.items() if c < COVERAGE_MIN}
+    return {
+        "papers": len(covs),
+        "mean": round(statistics.mean(covs), 4),
+        "median": round(statistics.median(covs), 4),
+        "min": min(covs),
+        "below_threshold": below,
+        "per_paper": per_paper,
+        "ok": not below,
+    }
 
 
-def check_tables(sample: int = 20) -> bool:
-    """Fidelity = fraction of numeric values in extracted tables that appear in
-    the source page. Tests for fabrication/corruption (the real risk); tolerant
-    of find_tables() cell-boundary merges, which do not change the values."""
+def check_tables(sample: int = 20) -> dict:
     with_tables = [r["paper_id"] for r in manifest.active_papers()
                    if _parsed(r["paper_id"])["n_tables"] > 0]
     picks = random.Random(0).sample(with_tables, min(sample, len(with_tables)))
-    print("\n=== TABLE FIDELITY (table numbers present verbatim in source page) ===")
-    fractions = []
+    samples = []
     for pid in picks:
         parsed = _parsed(pid)
         doc = fitz.open(config.RAW_DIR / f"{pid}.pdf")
@@ -81,39 +89,73 @@ def check_tables(sample: int = 20) -> bool:
             if not pg["tables"]:
                 continue
             raw = doc[pi].get_text()
-            cellnums = [n for r in pg["tables"][0]["rows"]
-                        for c in r if c for n in _numbers(str(c))]
-            if not cellnums:
+            nums = [n for r in pg["tables"][0]["rows"] for c in r if c for n in _numbers(str(c))]
+            if not nums:
                 continue
-            hit = sum(1 for n in cellnums if n in raw)
-            fractions.append(hit / len(cellnums))
-            print(f"  {pid} p{pi + 1}: {hit}/{len(cellnums)} numbers real ({hit / len(cellnums):.0%})")
+            hit = sum(1 for n in nums if n in raw)
+            samples.append({"paper_id": pid, "page": pi + 1, "hit": hit,
+                            "total": len(nums), "frac": round(hit / len(nums), 4)})
             break
         doc.close()
-    m = statistics.mean(fractions)
-    print(f"  mean numeric fidelity: {m:.1%} (are reported numbers real?)")
-    return m >= 0.98
+    mean = statistics.mean(s["frac"] for s in samples)
+    return {"mean_numeric_fidelity": round(mean, 4), "samples": samples, "ok": mean >= 0.98}
 
 
-def check_ocr() -> bool:
-    print("\n=== needs_ocr papers (should be text-sparse) ===")
-    ocr = [r for r in manifest.load_manifest() if r["status"] == "needs_ocr"]
-    for row in ocr:
+def check_ocr() -> dict:
+    out = []
+    for row in [r for r in manifest.load_manifest() if r["status"] == "needs_ocr"]:
         pid = row["paper_id"]
         doc = fitz.open(config.RAW_DIR / f"{pid}.pdf")
-        chars = sum(len(p.get_text()) for p in doc)
-        imgs = sum(len(p.get_images()) for p in doc)
-        print(f"  {pid}: pages={doc.page_count}, chars={chars}, images={imgs}")
+        out.append({"paper_id": pid, "pages": doc.page_count,
+                    "chars": sum(len(p.get_text()) for p in doc),
+                    "images": sum(len(p.get_images()) for p in doc)})
         doc.close()
-    if not ocr:
-        print("  (none)")
-    return True
+    return {"papers": out, "ok": True}
+
+
+def match_one(pid: str) -> None:
+    """Show coverage for one paper and the exact words present in the PDF but not
+    in our parsed output (empty == perfect match)."""
+    parsed = _parsed(pid)
+    our_w, raw_w = _words(_parsed_text(parsed)), _words(_raw_text(pid))
+    missing = sorted(raw_w - our_w)
+    cov = len(our_w & raw_w) / len(raw_w) if raw_w else 1.0
+    print(f"paper        : {pid}")
+    print(f"pages        : {parsed['num_pages']} | tables: {parsed['n_tables']} | "
+          f"needs_ocr: {parsed['needs_ocr']}")
+    print(f"coverage     : {cov:.4f}  ({len(our_w & raw_w)}/{len(raw_w)} raw words present)")
+    print(f"missing words: {len(missing)}")
+    if missing:
+        print("  " + ", ".join(missing[:60]) + (" ..." if len(missing) > 60 else ""))
+    print("\n--- parsed reading-order text (first 600 chars) ---")
+    print(_parsed_text(parsed)[:600])
+    print("\n--- raw PDF text (first 600 chars) ---")
+    print(_raw_text(pid)[:600])
 
 
 def main() -> None:
-    ok = all([check_coverage(), check_tables(), check_ocr()])
-    print("\nRESULT:", "PASS" if ok else "FAIL")
+    cov, tab, ocr = check_coverage(), check_tables(), check_ocr()
+    result = "PASS" if (cov["ok"] and tab["ok"] and ocr["ok"]) else "FAIL"
+    report = {"result": result, "coverage": cov, "table_fidelity": tab, "needs_ocr": ocr}
+    REPORT_PATH.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    print("=== TEXT COVERAGE ===")
+    print(f"  papers {cov['papers']} | mean {cov['mean']} | median {cov['median']} "
+          f"| min {cov['min']} | below {COVERAGE_MIN}: {len(cov['below_threshold'])}")
+    print("=== TABLE FIDELITY ===")
+    print(f"  mean numeric fidelity {tab['mean_numeric_fidelity']:.1%} over {len(tab['samples'])} tables")
+    print("=== needs_ocr ===")
+    for o in ocr["papers"]:
+        print(f"  {o['paper_id']}: pages={o['pages']} chars={o['chars']} images={o['images']}")
+    print(f"\nRESULT: {result}")
+    print(f"report saved: {REPORT_PATH}")
 
 
 if __name__ == "__main__":
-    main()
+    ap = argparse.ArgumentParser(description="Validate parsed JSON vs source PDFs.")
+    ap.add_argument("--paper", help="match a single paper_id against its PDF")
+    args = ap.parse_args()
+    if args.paper:
+        match_one(args.paper)
+    else:
+        main()
