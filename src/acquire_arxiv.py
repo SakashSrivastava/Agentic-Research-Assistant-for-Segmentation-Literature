@@ -31,7 +31,7 @@ AI_CATS = "(cat:cs.CV OR cat:cs.LG OR cat:cs.AI OR cat:eess.IV)"
 DEFAULT_CATEGORY_FILTER = MED_CATS
 
 # Majority medical, minority broader-AI. Buckets are de-duplicated against each
-# other. Tune any target, or cap a run with --limit N.
+# other. Tune any target, or cap a run with --limit N. (~250 total)
 QUERY_PLAN = [
     {"name": "head_neck",
      "query": 'abs:"head and neck" AND abs:segmentation',
@@ -39,6 +39,18 @@ QUERY_PLAN = [
     {"name": "organs_at_risk",
      "query": 'abs:"organs at risk" AND abs:segmentation',
      "target": 20, "categories": MED_CATS},
+    {"name": "orbital_ocular",
+     "query": '(abs:orbital OR abs:orbit OR abs:ocular OR abs:ophthalmic '
+              'OR abs:retinal OR abs:"eye socket") AND abs:segmentation',
+     "target": 20, "categories": MED_CATS},
+    {"name": "brain_neuro",
+     "query": '(abs:brain OR abs:"brain tumor" OR abs:neuroimaging OR abs:glioma) '
+              'AND abs:segmentation',
+     "target": 15, "categories": MED_CATS},
+    {"name": "cardiac_abdominal",
+     "query": '(abs:cardiac OR abs:"whole heart" OR abs:abdominal OR abs:liver '
+              'OR abs:kidney OR abs:pancreas) AND abs:segmentation',
+     "target": 15, "categories": MED_CATS},
     {"name": "small_structures",
      "query": '(abs:lesion OR abs:nodule OR abs:vessel OR abs:"small structure") '
               'AND abs:segmentation',
