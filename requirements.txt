@@ -1,0 +1,26 @@
+# Dependencies for Part A ingestion (Days 1-2). We install these, confirm they
+# import, then pin exact versions with `pip freeze` (Day 8 deliverable).
+#
+# Kept intentionally minimal: only what the current stage needs. Flask,
+# langgraph, boto3 etc. are added on the days they are first used, so we never
+# install ahead of what we can explain.
+
+# --- PDF parsing (Stage 2) ---
+pymupdf                 # layout-aware PDF parsing, no Java dependency
+
+# --- Embeddings + reranker (Stages 8, and Day 3) ---
+sentence-transformers   # BGE-small embeddings + bge-reranker cross-encoder; pulls torch (CPU)
+
+# --- Vector store (Stage 9) ---
+chromadb                # persistent local vector DB, no server, no Docker
+
+# --- Keyword search (Stage 9) ---
+rank_bm25               # BM25 over the same chunks
+
+# --- LLM (Stages 5, agents) ---
+anthropic               # Claude SDK, tool-calling API
+
+# --- Infra / utilities ---
+python-dotenv           # load secrets from .env
+requests                # arXiv / PubMed Central HTTP API (Stage 0)
+tqdm                    # progress bars for long loops

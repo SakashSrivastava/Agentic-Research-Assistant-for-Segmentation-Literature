@@ -1,0 +1,31 @@
+# --- Secrets ---
+.env
+*.key
+
+# --- Python ---
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# --- Derived data (reproducible from data/raw, so never committed) ---
+# Note: data/raw itself is the immutable source. On this repo we do NOT
+# commit the PDFs either (large, licensing). They are re-downloadable via
+# the acquisition script + manifest. Keep folder structure via .gitkeep.
+data/raw/*
+data/parsed/*
+data/clean/*
+data/chunks/*
+data/index/*
+data/app.db
+data/manifest.jsonl
+!data/**/.gitkeep
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.vscode/
+*.log
