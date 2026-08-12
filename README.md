@@ -22,9 +22,10 @@ and getting it to work is the core of the project.
 
 ## Status
 
-Work in progress, built one stage at a time. The ingestion pipeline is done and
-validated. Retrieval, the agent, the web UI, and deployment are next (see the
-roadmap below).
+Work in progress, built one stage at a time. The text-preparation pipeline
+(acquire through clean) is done and validated. Chunking, embedding, indexing,
+retrieval, the agent, the web UI, and deployment are next (see the roadmap
+below).
 
 To be clear about what this is not: it is a working system with measured results,
 not a production service. There is no monitoring, auth, or unattended operation.
@@ -46,6 +47,8 @@ the output is checked against the source rather than assumed correct.
 | Papers with a Results / Experiments section | 250 (91%) |
 | Parse text coverage vs. source PDFs | 0.9997 mean (min 0.987) |
 | Table numeric fidelity (values that trace back to source) | 100% |
+| Cleaning: headers/footers and equations stripped | 3,093 / 1,181 |
+| Result numbers retained through cleaning | 98.3% (rest are page numbers) |
 
 The corpus is weighted toward head-and-neck, organs-at-risk, orbital/ocular, and
 small-structure segmentation, with a minority of broader-AI work (diffusion
@@ -72,14 +75,19 @@ Only the parts that genuinely need judgement get an agent.
 4. **Structure recovery:** group blocks into sections (Abstract, Methods,
    Results, and so on) using the font signals plus a section-name regex, and cut
    everything after References so the bibliography does not pollute retrieval.
-5. **Validation:** before trusting any of the above, compare the parsed output
+5. **Clean:** apply six ordered transforms per section (Unicode NFKC,
+   de-hyphenate across line breaks, strip repeated headers/footers, join
+   paragraph lines, replace display equations with a token, collapse whitespace),
+   logging what each removes. Tables are left untouched, and the equation filter
+   is tuned to never mistake a result row (`0.88 ± 0.02`) for an equation.
+6. **Validation:** before trusting any of the above, compare the parsed output
    word for word against the raw PDFs and verify that extracted table numbers
    actually appear in the source. Results are saved to
    `data/parse_validation.json`.
 
-Still to come: cleaning, chunking, embedding, hybrid retrieval (vector + BM25 +
-reranker), the hand-written agent loop, a verified metric-extraction agent, a
-Flask UI, and deployment.
+Still to come: chunking, embedding, hybrid retrieval (vector + BM25 + reranker),
+the hand-written agent loop, a verified metric-extraction agent, a Flask UI, and
+deployment.
 
 ## Stack
 
@@ -108,6 +116,7 @@ python -m src.acquire_arxiv          # download the corpus (~25 min, rate limite
 python -m src.manifest               # fingerprint + dedup
 python -m src.parse                  # layout-aware parsing
 python -m src.structure              # section recovery
+python -m src.clean                  # text cleaning
 python -m src.validate_parse         # QA report vs. source PDFs
 ```
 
@@ -123,7 +132,7 @@ python -m src.validate_parse --paper arxiv_1808.05238
 data/
   raw/            source PDFs + API metadata (immutable, re-downloadable)
   parsed/         page-level blocks with layout info
-  clean/          section-structured text
+  clean/          section-structured, cleaned text
   chunks/         (coming) final chunks with metadata
   index/          (coming) chroma collection + bm25 index
   manifest.jsonl  per-paper record + pipeline status
@@ -141,7 +150,8 @@ it, so a chunking change means re-running from `parsed/`, never re-downloading.
 - [x] Acquisition, manifest + dedup
 - [x] Layout-aware parsing (columns, tables, OCR detection) + validation
 - [x] Structure recovery (sections, reference truncation)
-- [ ] Cleaning, chunking, embedding, indexing
+- [x] Cleaning (NFKC, de-hyphenation, header/footer and equation stripping)
+- [ ] Chunking, embedding, indexing
 - [ ] Hybrid retrieval + reranking, with a labelled retrieval eval
 - [ ] Hand-written planning / tool-calling agent + verified metric extraction
 - [ ] Flask interface with inline citations and an agent trace
