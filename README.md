@@ -49,6 +49,7 @@ the output is checked against the source rather than assumed correct.
 | Table numeric fidelity (values that trace back to source) | 100% |
 | Cleaning: headers/footers and equations stripped | 3,093 / 1,181 |
 | Result numbers retained through cleaning | 98.3% (rest are page numbers) |
+| Chunks produced (section-aware, 400-token) | 8,139 (732 whole tables) |
 
 The corpus is weighted toward head-and-neck, organs-at-risk, orbital/ocular, and
 small-structure segmentation, with a minority of broader-AI work (diffusion
@@ -84,12 +85,18 @@ Only the parts that genuinely need judgement get an agent.
    and imaging modality from its abstract, as controlled-vocabulary metadata for
    filtered retrieval ("search only CT head-and-neck papers"). The one part of
    ingestion that needs judgement rather than rules.
-7. **Validation:** before trusting any of the above, compare the parsed output
+7. **Chunk (section-aware):** split sections into retrieval units, measured with
+   the embedding model's own tokenizer. Chunks never span sections, tables are
+   kept whole, and IDs are deterministic (`{paper_id}::{section}::{index}`) so
+   the retrieval gold set stays valid across runs. Sized to the model's real
+   512-token limit, not the spec's 800, since BGE-small silently truncates longer
+   inputs.
+8. **Validation:** before trusting any of the above, compare the parsed output
    word for word against the raw PDFs and verify that extracted table numbers
    actually appear in the source. Results are saved to
    `data/parse_validation.json`.
 
-Still to come: chunking, embedding, hybrid retrieval (vector + BM25 + reranker),
+Still to come: embedding, indexing, hybrid retrieval (vector + BM25 + reranker),
 the hand-written agent loop, a verified metric-extraction agent, a Flask UI, and
 deployment.
 
@@ -128,6 +135,7 @@ python -m src.parse                  # layout-aware parsing
 python -m src.structure              # section recovery
 python -m src.clean                  # text cleaning
 python -m src.enrich                 # LLM metadata (anatomy + modality)
+python -m src.chunk                  # section-aware chunking
 python -m src.validate_parse         # QA report vs. source PDFs
 ```
 
@@ -163,7 +171,8 @@ it, so a chunking change means re-running from `parsed/`, never re-downloading.
 - [x] Structure recovery (sections, reference truncation)
 - [x] Cleaning (NFKC, de-hyphenation, header/footer and equation stripping)
 - [x] Metadata enrichment (anatomy + modality via LLM, for filtered retrieval)
-- [ ] Chunking, embedding, indexing
+- [x] Section-aware chunking (deterministic IDs, sized to the 512-token model)
+- [ ] Embedding, indexing
 - [ ] Hybrid retrieval + reranking, with a labelled retrieval eval
 - [ ] Hand-written planning / tool-calling agent + verified metric extraction
 - [ ] Flask interface with inline citations and an agent trace
