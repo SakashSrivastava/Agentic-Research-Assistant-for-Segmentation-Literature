@@ -30,7 +30,13 @@ REQUEST_TIMEOUT = 60
 USER_AGENT = f"MedSegLitBot/0.1 (mailto:{CONTACT_EMAIL})"
 
 # --- Embedding + chunking ---
+# BGE-small-en-v1.5 has a 512-token max input, so chunks are sized to fit it.
+# Bound: a chunk is at most CHUNK_TOKENS, or (overlap + one max paragraph) in the
+# edge case = 60 + 400 = 460, leaving ~50 tokens for the title+section prefix that
+# Stage 7 prepends before embedding. Chunking at the spec's 800 would silently
+# truncate a third of each chunk at embed time.
 EMBED_MODEL = "BAAI/bge-small-en-v1.5"
-CHUNK_TOKENS = 800
-CHUNK_OVERLAP = 150
+EMBED_MAX_TOKENS = 512
+CHUNK_TOKENS = 400
+CHUNK_OVERLAP = 60
 MIN_CHUNK_TOKENS = 100
