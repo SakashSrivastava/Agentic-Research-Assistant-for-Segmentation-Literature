@@ -80,7 +80,11 @@ Only the parts that genuinely need judgement get an agent.
    paragraph lines, replace display equations with a token, collapse whitespace),
    logging what each removes. Tables are left untouched, and the equation filter
    is tuned to never mistake a result row (`0.88 ± 0.02`) for an equation.
-6. **Validation:** before trusting any of the above, compare the parsed output
+6. **Enrich (one cheap LLM call/paper):** label each paper's anatomical target
+   and imaging modality from its abstract, as controlled-vocabulary metadata for
+   filtered retrieval ("search only CT head-and-neck papers"). The one part of
+   ingestion that needs judgement rather than rules.
+7. **Validation:** before trusting any of the above, compare the parsed output
    word for word against the raw PDFs and verify that extracted table numbers
    actually appear in the source. Results are saved to
    `data/parse_validation.json`.
@@ -92,12 +96,18 @@ deployment.
 ## Stack
 
 Python 3.12, PyMuPDF, sentence-transformers (BGE-small), ChromaDB, rank_bm25,
-bge-reranker cross-encoder, SQLite, Claude (Anthropic SDK), Flask, Docker / AWS.
+bge-reranker cross-encoder, SQLite, Groq (gpt-oss-120b, free tier), Flask,
+Docker / AWS.
+
+The LLM sits behind a one-file wrapper (`src/llm.py`), so the provider is a
+single-line change. I use Groq's free tier rather than a paid API; the
+architecture is provider-agnostic.
 
 One deliberate choice worth calling out: the agent loop is hand-written on the
-Anthropic tool-calling API, not LangChain or LangGraph. The goal was to
-understand tool calling at the API level rather than hide it behind a framework.
-A later phase re-implements it in LangGraph specifically to compare the two.
+LLM's tool-calling API (OpenAI-compatible), not LangChain or LangGraph. The goal
+was to understand tool calling at the API level rather than hide it behind a
+framework. A later phase re-implements it in LangGraph specifically to compare
+the two.
 
 ## Setup
 
@@ -106,7 +116,7 @@ python -m venv venv
 .\venv\Scripts\Activate.ps1          # Windows PowerShell
 pip install -r requirements.txt
 
-copy .env.example .env               # then add your ANTHROPIC_API_KEY
+copy .env.example .env               # then add your free GROQ_API_KEY
 ```
 
 Run the pipeline stages (each is restartable and idempotent):
@@ -117,6 +127,7 @@ python -m src.manifest               # fingerprint + dedup
 python -m src.parse                  # layout-aware parsing
 python -m src.structure              # section recovery
 python -m src.clean                  # text cleaning
+python -m src.enrich                 # LLM metadata (anatomy + modality)
 python -m src.validate_parse         # QA report vs. source PDFs
 ```
 
@@ -151,6 +162,7 @@ it, so a chunking change means re-running from `parsed/`, never re-downloading.
 - [x] Layout-aware parsing (columns, tables, OCR detection) + validation
 - [x] Structure recovery (sections, reference truncation)
 - [x] Cleaning (NFKC, de-hyphenation, header/footer and equation stripping)
+- [x] Metadata enrichment (anatomy + modality via LLM, for filtered retrieval)
 - [ ] Chunking, embedding, indexing
 - [ ] Hybrid retrieval + reranking, with a labelled retrieval eval
 - [ ] Hand-written planning / tool-calling agent + verified metric extraction

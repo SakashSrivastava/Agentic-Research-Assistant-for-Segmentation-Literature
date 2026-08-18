@@ -18,7 +18,7 @@ chromadb                # persistent local vector DB, no server, no Docker
 rank_bm25               # BM25 over the same chunks
 
 # --- LLM (Stages 5, agents) ---
-anthropic               # Claude SDK, tool-calling API
+groq                    # free-tier LLM API (Llama 3.3 70B); OpenAI-compatible tool calling
 
 # --- Infra / utilities ---
 python-dotenv           # load secrets from .env
