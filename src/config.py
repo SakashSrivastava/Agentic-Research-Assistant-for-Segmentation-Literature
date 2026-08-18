@@ -21,10 +21,16 @@ MANIFEST_PATH = DATA_DIR / "manifest.jsonl"
 for _d in (RAW_DIR, PARSED_DIR, CLEAN_DIR, CHUNKS_DIR, INDEX_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 CONTACT_EMAIL = os.getenv("CONTACT_EMAIL", "anonymous@example.com")
 
 RATE_LIMIT_SECONDS = 3.0   # arXiv: max 1 request / 3s
 MAX_RETRIES = 5
 REQUEST_TIMEOUT = 60
 USER_AGENT = f"MedSegLitBot/0.1 (mailto:{CONTACT_EMAIL})"
+
+# --- Embedding + chunking ---
+EMBED_MODEL = "BAAI/bge-small-en-v1.5"
+CHUNK_TOKENS = 800
+CHUNK_OVERLAP = 150
+MIN_CHUNK_TOKENS = 100

@@ -29,6 +29,21 @@ so committing it just bloats the repo and invites stale artifacts. The manifest
 
 ---
 
+## Day 2 — LLM provider: Groq instead of Claude
+
+**Deviation from spec: Groq (Llama 3.3 70B, free tier) instead of Claude.**
+The spec fixes the LLM as Claude via the anthropic SDK, but I don't have paid
+API access. Groq's free tier gives me a capable model with OpenAI-compatible
+tool calling, which is all the architecture needs. Every design decision is
+provider-agnostic: only `src/llm.py` (the wrapper) knows which provider is
+behind it. Trade-off: open models are weaker than Claude on the hardest parts
+(metric-extraction verification, multi-hop reasoning), so final accuracy numbers
+may be a bit lower. Interview answer: "provider swap for cost/access; the
+hand-written tool-calling loop is written at the API level and ports to any
+provider." The hand-written-vs-LangGraph story (Part B) is unaffected.
+
+---
+
 ## Questions to answer as we build (from spec §9)
 
 - [ ] Why is the raw layer immutable, and what does that buy?
