@@ -40,3 +40,8 @@ EMBED_MAX_TOKENS = 512
 CHUNK_TOKENS = 400
 CHUNK_OVERLAP = 60
 MIN_CHUNK_TOKENS = 100
+
+# --- Retrieval ---
+RERANK_MODEL = "BAAI/bge-reranker-base"   # cross-encoder for reranking
+RRF_K = 60                                # reciprocal-rank-fusion constant
+RERANK_CANDIDATES = 25                    # retrieve 25, rerank, keep top 5
