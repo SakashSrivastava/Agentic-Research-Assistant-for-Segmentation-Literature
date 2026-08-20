@@ -22,10 +22,11 @@ and getting it to work is the core of the project.
 
 ## Status
 
-Work in progress, built one stage at a time. The text-preparation pipeline
-(acquire through clean) is done and validated. Chunking, embedding, indexing,
-retrieval, the agent, the web UI, and deployment are next (see the roadmap
-below).
+Work in progress, built one stage at a time. The full ingestion pipeline
+(acquire through index) is done and validated: the corpus is embedded and
+queryable through both a vector store and a keyword store, with a labelled
+retrieval eval in place. The multi-step agent, the web UI, and deployment are
+next (see the roadmap below).
 
 To be clear about what this is not: it is a working system with measured results,
 not a production service. There is no monitoring, auth, or unattended operation.
@@ -50,6 +51,8 @@ the output is checked against the source rather than assumed correct.
 | Cleaning: headers/footers and equations stripped | 3,093 / 1,181 |
 | Result numbers retained through cleaning | 98.3% (rest are page numbers) |
 | Chunks produced (section-aware, 400-token) | 8,139 (732 whole tables) |
+| Chunks embedded (BGE-small, 384-dim, cached) | 8,139 |
+| Retrieval stores | ChromaDB + rank_bm25 + SQLite |
 
 The corpus is weighted toward head-and-neck, organs-at-risk, orbital/ocular, and
 small-structure segmentation, with a minority of broader-AI work (diffusion
@@ -91,14 +94,22 @@ Only the parts that genuinely need judgement get an agent.
    the retrieval gold set stays valid across runs. Sized to the model's real
    512-token limit, not the spec's 800, since BGE-small silently truncates longer
    inputs.
-8. **Validation:** before trusting any of the above, compare the parsed output
-   word for word against the raw PDFs and verify that extracted table numbers
-   actually appear in the source. Results are saved to
-   `data/parse_validation.json`.
+8. **Embed (contextual):** prepend title + section to each chunk (for the vector
+   only; display text unchanged), embed with BGE-small in batches of 64,
+   L2-normalized. Vectors are cached by content hash so a re-run only embeds
+   changed chunks; the model + dimension are recorded so two embedding models can
+   never silently mix.
+9. **Index:** load vectors into ChromaDB (with paper_id / section / year /
+   anatomy / modality as filter metadata), build a persisted rank_bm25 keyword
+   index over the same chunks, and populate a SQLite papers table. Vectors for
+   semantic similarity, BM25 for exact metric and architecture names.
+10. **Validation:** before trusting any of the above, compare the parsed output
+    word for word against the raw PDFs and verify that extracted table numbers
+    actually appear in the source. Results are saved to
+    `data/parse_validation.json`.
 
-Still to come: embedding, indexing, hybrid retrieval (vector + BM25 + reranker),
-the hand-written agent loop, a verified metric-extraction agent, a Flask UI, and
-deployment.
+Still to come: the hand-written agent loop, a verified metric-extraction agent,
+a Flask UI, and deployment.
 
 ## Stack
 
@@ -136,6 +147,8 @@ python -m src.structure              # section recovery
 python -m src.clean                  # text cleaning
 python -m src.enrich                 # LLM metadata (anatomy + modality)
 python -m src.chunk                  # section-aware chunking
+python -m src.embed                  # contextual embedding (BGE-small, cached)
+python -m src.index                  # build Chroma + BM25 + SQLite stores
 python -m src.validate_parse         # QA report vs. source PDFs
 ```
 
@@ -164,6 +177,33 @@ NOTES.md          plain-language design log, the reasoning behind each decision
 `data/raw` is immutable on purpose: everything downstream is reproducible from
 it, so a chunking change means re-running from `parsed/`, never re-downloading.
 
+## Retrieval evaluation
+
+52 questions labelled with gold chunk IDs (41 single-hop lookups, 11 comparative
+multi-hop), scored with `python -m src.eval_retrieval`:
+
+| method | chunk recall@5 | paper hit@5 | MRR | single-hop r@5 | multi-hop r@5 |
+|---|--:|--:|--:|--:|--:|
+| vector | 0.468 | 0.846 | 0.28 | 0.585 | 0.030 |
+| bm25 | 0.000 | 0.827 | 0.00 | 0.000 | 0.000 |
+| hybrid (RRF) | 0.019 | 0.846 | 0.04 | 0.024 | 0.000 |
+| rerank | 0.404 | 0.827 | 0.25 | 0.512 | 0.000 |
+
+Two findings drove the design:
+
+- **Dense vector retrieval is the strongest method here, and adding BM25 or a
+  cross-encoder reranker did not help exact-chunk recall (they hurt it).** The
+  answers live in number-heavy result tables: BM25 can't keyword-match them, the
+  cross-encoder ranks them below prose, and RRF rewards the prose both agree on.
+  Measured, not assumed. Paper-level hit@5 stays ~0.85 for every method (the
+  right *document* is found regardless), which is the signal the agent needs, so
+  the design uses vector for chunk retrieval and BM25/hybrid as a paper-level
+  signal, and drops the reranker (no gain, and far too slow on CPU).
+- **Every single-query method scores ~0.03 on the multi-hop questions.** A
+  comparative question ("which architectures work best for head-and-neck?") needs
+  tables from several papers, which one query embedding cannot gather. This is the
+  ceiling that motivates the multi-step agent.
+
 ## Roadmap
 
 - [x] Acquisition, manifest + dedup
@@ -172,8 +212,8 @@ it, so a chunking change means re-running from `parsed/`, never re-downloading.
 - [x] Cleaning (NFKC, de-hyphenation, header/footer and equation stripping)
 - [x] Metadata enrichment (anatomy + modality via LLM, for filtered retrieval)
 - [x] Section-aware chunking (deterministic IDs, sized to the 512-token model)
-- [ ] Embedding, indexing
-- [ ] Hybrid retrieval + reranking, with a labelled retrieval eval
+- [x] Embedding + indexing (ChromaDB vectors + BM25 keyword + SQLite)
+- [x] Retrieval + labelled 52-question eval (recall@5, paper-hit@5, MRR)
 - [ ] Hand-written planning / tool-calling agent + verified metric extraction
 - [ ] Flask interface with inline citations and an agent trace
 - [ ] Docker + AWS deployment

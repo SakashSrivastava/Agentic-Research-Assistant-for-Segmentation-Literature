@@ -48,7 +48,8 @@ def _load_cache() -> dict[str, np.ndarray]:
     if not CACHE.exists():
         return {}
     d = np.load(CACHE, allow_pickle=False)
-    return {h: d["vectors"][i] for i, h in enumerate(d["hashes"])}
+    hashes, vectors = d["hashes"], d["vectors"]   # load each array once, not per-row
+    return {h: vectors[i] for i, h in enumerate(hashes)}
 
 
 def _save_cache(cache: dict[str, np.ndarray]) -> None:
