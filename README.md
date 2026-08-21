@@ -149,13 +149,22 @@ python -m src.enrich                 # LLM metadata (anatomy + modality)
 python -m src.chunk                  # section-aware chunking
 python -m src.embed                  # contextual embedding (BGE-small, cached)
 python -m src.index                  # build Chroma + BM25 + SQLite stores
+python -m src.extract                # metric extraction (Agent 2; resumable per day)
 python -m src.validate_parse         # QA report vs. source PDFs
+python -m src.eval_retrieval         # retrieval eval (recall@5, paper-hit@5)
 ```
 
 Sanity-check any single paper against its PDF:
 
 ```bash
 python -m src.validate_parse --paper arxiv_1808.05238
+```
+
+Ask the assistant (CLI or web UI):
+
+```bash
+python -m src.agent "Which architectures report the best Dice on head and neck segmentation?"
+python -m src.app     # then open http://localhost:5000
 ```
 
 ## Repository layout
@@ -214,8 +223,9 @@ Two findings drove the design:
 - [x] Section-aware chunking (deterministic IDs, sized to the 512-token model)
 - [x] Embedding + indexing (ChromaDB vectors + BM25 keyword + SQLite)
 - [x] Retrieval + labelled 52-question eval (recall@5, paper-hit@5, MRR)
-- [ ] Hand-written planning / tool-calling agent + verified metric extraction
-- [ ] Flask interface with inline citations and an agent trace
+- [x] Verified metric extraction (Agent 2) into a SQLite metrics table
+- [x] Hand-written planning / tool-calling agent (no LangChain/LangGraph)
+- [x] Flask interface (query -> cited answer -> collapsible agent trace)
 - [ ] Docker + AWS deployment
 - [ ] LangGraph re-implementation and a head-to-head comparison
 

@@ -20,6 +20,10 @@ rank_bm25               # BM25 over the same chunks
 # --- LLM (Stages 5, agents) ---
 groq                    # free-tier LLM API (Llama 3.3 70B); OpenAI-compatible tool calling
 
+# --- Interface (Day 8) ---
+flask                   # web UI: query box, answer, agent trace
+markdown                # render the agent's markdown answer to HTML
+
 # --- Infra / utilities ---
 python-dotenv           # load secrets from .env
 requests                # arXiv / PubMed Central HTTP API (Stage 0)

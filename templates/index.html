@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Segmentation Literature Assistant</title>
+  <style>
+    :root { --bg:#f6f7f9; --card:#fff; --ink:#1c2530; --muted:#66727f;
+            --accent:#2f6f6a; --border:#e3e7ec; --code:#f0f2f5; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--ink);
+           font:16px/1.55 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
+    .wrap { max-width:860px; margin:0 auto; padding:32px 20px 64px; }
+    header h1 { margin:0 0 4px; font-size:1.5rem; }
+    header p { margin:0 0 24px; color:var(--muted); }
+    form { display:flex; gap:10px; }
+    textarea { flex:1; padding:12px 14px; border:1px solid var(--border); border-radius:10px;
+               font:inherit; resize:vertical; min-height:52px; background:var(--card); }
+    button { padding:0 22px; border:0; border-radius:10px; background:var(--accent); color:#fff;
+             font-weight:600; cursor:pointer; }
+    button:hover { background:#255a56; }
+    .examples { margin:14px 0 0; font-size:.86rem; color:var(--muted); }
+    .examples a { display:block; margin:5px 0; color:var(--accent); text-decoration:none; cursor:pointer; }
+    .examples a:hover { text-decoration:underline; }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:12px;
+            padding:20px 24px; margin-top:26px; }
+    .card h2 { margin:0 0 6px; font-size:.8rem; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); }
+    .answer table { border-collapse:collapse; width:100%; margin:12px 0; font-size:.92rem; }
+    .answer th, .answer td { border:1px solid var(--border); padding:6px 10px; text-align:left; }
+    .answer th { background:var(--code); }
+    .answer code { background:var(--code); padding:1px 5px; border-radius:4px; }
+    .meta { color:var(--muted); font-size:.82rem; margin-top:10px; }
+    details { margin-top:18px; }
+    summary { cursor:pointer; font-weight:600; color:var(--accent); }
+    .step { border-left:3px solid var(--border); padding:6px 0 6px 12px; margin:10px 0; font-size:.85rem; }
+    .step .tool { font-family:ui-monospace,Menlo,Consolas,monospace; color:var(--accent); }
+    .step .args { color:var(--muted); }
+    .step .res { color:#3a4653; white-space:pre-wrap; word-break:break-word; }
+    .error { background:#fff4f2; border:1px solid #f2c9c0; color:#8a2b1c; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Segmentation Literature Assistant</h1>
+      <p>Ask about reported results across medical image segmentation papers. The agent
+         plans, queries a verified metrics table and the corpus, and answers with citations.</p>
+    </header>
+
+    <form method="post">
+      <textarea name="question" placeholder="e.g. Which architectures report the best Dice on head and neck segmentation, and on how many cases?">{{ question }}</textarea>
+      <button type="submit">Ask</button>
+    </form>
+
+    {% if not result %}
+    <div class="examples">
+      Try:
+      {% for ex in examples %}<a onclick="document.querySelector('textarea').value=this.textContent.trim();">{{ ex }}</a>{% endfor %}
+    </div>
+    {% endif %}
+
+    {% if result %}
+      {% if result.error %}
+        <div class="card error">
+          <h2>Could not answer</h2>
+          <div>{{ result.error }}</div>
+          <div class="meta">If this is a Groq rate limit, the free-tier daily token budget is spent; try again after it resets.</div>
+        </div>
+      {% else %}
+        <div class="card">
+          <h2>Answer</h2>
+          <div class="answer">{{ result.answer | safe }}</div>
+          <div class="meta">{{ result.steps }} agent steps &middot; {{ result.tokens }} tokens</div>
+        </div>
+        <details>
+          <summary>Agent trace ({{ result.trace|length }} tool calls)</summary>
+          {% for s in result.trace %}
+          <div class="step">
+            <span class="tool">{{ s.tool }}</span> <span class="args">{{ s.args }}</span>
+            <div class="res">{{ s.result_preview }}</div>
+          </div>
+          {% endfor %}
+        </details>
+      {% endif %}
+    {% endif %}
+  </div>
+</body>
+</html>

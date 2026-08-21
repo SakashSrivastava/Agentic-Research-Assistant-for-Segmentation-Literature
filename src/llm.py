@@ -23,7 +23,7 @@ def _get() -> Groq:
         if not config.GROQ_API_KEY or "PASTE" in config.GROQ_API_KEY:
             raise RuntimeError("GROQ_API_KEY is not set. Add your key to the .env file "
                                "(get one free at https://console.groq.com/keys).")
-        _client = Groq(api_key=config.GROQ_API_KEY, max_retries=config.MAX_RETRIES)
+        _client = Groq(api_key=config.GROQ_API_KEY, max_retries=2, timeout=90.0)
     return _client
 
 
@@ -44,3 +44,15 @@ def chat_json(system: str, user: str, **kw):
     """chat() in JSON mode, parsed to a dict. Returns (dict, usage)."""
     text, usage = chat(system, user, json_mode=True, **kw)
     return json.loads(text), usage
+
+
+def chat_tools(messages: list, tools: list, *, model: str = DEFAULT_MODEL,
+               max_tokens: int = 1500, temperature: float = 0.0):
+    """One tool-calling turn. Returns (message, usage). The message may carry
+    .content (final text) and/or .tool_calls (requests for us to run tools).
+    This is the raw API surface the hand-written agent loop drives."""
+    resp = _get().chat.completions.create(
+        model=model, messages=messages, tools=tools, tool_choice="auto",
+        max_tokens=max_tokens, temperature=temperature,
+    )
+    return resp.choices[0].message, resp.usage
