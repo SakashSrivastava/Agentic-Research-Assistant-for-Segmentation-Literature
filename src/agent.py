@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sqlite3
 
 from src import config, llm, retrieve
@@ -48,9 +49,15 @@ def _query_metrics(anatomical_target=None, metric_name=None, architecture=None,
          "FROM metrics m LEFT JOIN papers p ON m.paper_id=p.paper_id WHERE 1=1")
     p = []
     if anatomical_target:
-        t = f"%{anatomical_target.lower()}%"
-        q += " AND (lower(m.anatomical_target) LIKE ? OR lower(p.anatomical_target) LIKE ?)"
-        p += [t, t]
+        # Match on individual words so "brain tumor"/"glioma segmentation" still
+        # hits rows tagged with the region ("brain") or a specific structure.
+        words = [w for w in re.findall(r"[a-z0-9]+", anatomical_target.lower()) if len(w) >= 4]
+        if words:
+            clauses = []
+            for w in words:
+                clauses.append("(lower(m.anatomical_target) LIKE ? OR lower(p.anatomical_target) LIKE ?)")
+                p += [f"%{w}%", f"%{w}%"]
+            q += " AND (" + " OR ".join(clauses) + ")"
     if metric_name:
         mn = metric_name.lower()
         if mn in ("dice", "dsc"):   # Dice and DSC are the same metric
@@ -159,7 +166,11 @@ def answer(question: str, verbose: bool = True) -> dict:
     trace, tokens_in, tokens_out = [], 0, 0
 
     for step in range(1, MAX_ITERS + 1):
-        msg, usage = llm.chat_tools(messages, TOOLS)
+        try:
+            msg, usage = llm.chat_tools(messages, TOOLS)
+        except Exception as ex:  # noqa: BLE001 - e.g. daily token budget exhausted
+            return {"answer": f"(stopped: LLM unavailable - {ex})", "trace": trace,
+                    "steps": step, "tokens": (tokens_in, tokens_out)}
         tokens_in += usage.prompt_tokens
         tokens_out += usage.completion_tokens
         messages.append(_msg_to_dict(msg))
@@ -180,7 +191,7 @@ def answer(question: str, verbose: bool = True) -> dict:
             if verbose:
                 print(f"  [step {step}] {name}({args}) -> {str(result)[:110]}")
             messages.append({"role": "tool", "tool_call_id": tc.id,
-                             "content": json.dumps(result, default=str)[:4000]})
+                             "content": json.dumps(result, default=str)[:2000]})
 
         if tokens_in + tokens_out > TOKEN_BUDGET:               # guardrail: cost cap
             return {"answer": "(stopped: token budget exceeded)", "trace": trace,
