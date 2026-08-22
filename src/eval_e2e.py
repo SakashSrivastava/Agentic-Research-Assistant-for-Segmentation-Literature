@@ -1,0 +1,96 @@
+"""Day 7: end-to-end answer-quality eval - baseline RAG vs the hand-written agent.
+
+For each question we produce an answer two ways:
+  - baseline RAG : retrieve top-k chunks, stuff them into one LLM call
+  - agent        : the multi-step tool-calling agent
+Both answers are scored by an LLM judge on faithfulness, completeness, and
+citation accuracy (1-5). Reports a comparison split by single/multi-hop, plus
+tokens and latency per query.
+
+  python -m src.eval_e2e --limit 6     # small, budget-friendly run
+  python -m src.eval_e2e               # full question set
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import time
+
+from src import agent, config, llm, retrieve
+
+QUESTIONS = config.ROOT / "evals" / "retrieval_questions.jsonl"
+RESULTS = config.ROOT / "evals" / "e2e_results.json"
+
+BASELINE_SYS = (
+    "Answer the question using ONLY the passages provided. Cite the paper_id "
+    "(arxiv_...) for each claim. If the passages do not contain the answer, say so. "
+    "Do not invent numbers. Be concise.")
+
+JUDGE_SYS = (
+    "You grade an answer to a question about medical image segmentation papers. "
+    "Return a JSON object with integer keys faithfulness, completeness, citation "
+    "(each 1-5) and a short string 'note'.\n"
+    "  faithfulness: are all claims/numbers supported, with nothing invented?\n"
+    "  completeness: does it fully answer what was asked?\n"
+    "  citation: are paper_ids cited for the claims?\n"
+    "Grade strictly.")
+
+
+def baseline_rag(question: str, k: int = 5):
+    passages = retrieve._passages()
+    ctx = "\n\n".join(f"[{cid.split('::')[0]}] {passages.get(cid, '')[:600]}"
+                      for cid, _ in retrieve.search(question, k=k, method="vector"))
+    text, usage = llm.chat(BASELINE_SYS, f"Passages:\n{ctx}\n\nQuestion: {question}",
+                           max_tokens=500)
+    return text, usage.prompt_tokens + usage.completion_tokens
+
+
+def judge(question: str, answer: str):
+    data, _ = llm.chat_json(JUDGE_SYS, f"Question: {question}\n\nAnswer:\n{answer}",
+                            max_tokens=300)
+    return {k: data.get(k) for k in ("faithfulness", "completeness", "citation")}
+
+
+def _avg(rows, method, key, hop=None):
+    sel = [r for r in rows if hop is None or r["hop"] == hop]
+    vals = [r[method].get(key) or 0 for r in sel]
+    return sum(vals) / len(vals) if vals else 0.0
+
+
+def run(limit: int | None = None) -> None:
+    qs = [json.loads(l) for l in open(QUESTIONS, encoding="utf-8")]
+    if limit:
+        qs = qs[:limit]
+    rows = []
+    for q in qs:
+        t = time.time()
+        b_ans, b_tok = baseline_rag(q["question"])
+        b = {**judge(q["question"], b_ans), "tokens": b_tok, "latency": round(time.time() - t, 1)}
+        t = time.time()
+        a_out = agent.answer(q["question"], verbose=False)
+        a = {**judge(q["question"], a_out["answer"]), "tokens": sum(a_out["tokens"]),
+             "latency": round(time.time() - t, 1), "steps": a_out["steps"]}
+        rows.append({"id": q["id"], "hop": q["hop"], "baseline": b, "agent": a})
+        print(f"  {q['id']} ({q['hop']}): baseline F{b['faithfulness']}/C{b['completeness']} "
+              f"| agent F{a['faithfulness']}/C{a['completeness']}")
+
+    RESULTS.write_text(json.dumps(rows, indent=2), encoding="utf-8")
+    print("\n----- end-to-end eval -----")
+    hdr = f"{'group':10} | {'method':8} | {'faith':>5} {'compl':>5} {'cite':>5} | {'tokens':>6} {'lat(s)':>6}"
+    print(hdr + "\n" + "-" * len(hdr))
+    for hop in (None, "single", "multi"):
+        label = hop or "all"
+        for method in ("baseline", "agent"):
+            print(f"{label:10} | {method:8} | "
+                  f"{_avg(rows, method, 'faithfulness', hop):5.2f} "
+                  f"{_avg(rows, method, 'completeness', hop):5.2f} "
+                  f"{_avg(rows, method, 'citation', hop):5.2f} | "
+                  f"{_avg(rows, method, 'tokens', hop):6.0f} "
+                  f"{_avg(rows, method, 'latency', hop):6.1f}")
+    print(f"\nsaved {RESULTS}")
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser(description="Day 7 end-to-end eval (baseline RAG vs agent).")
+    ap.add_argument("--limit", type=int, default=None)
+    run(limit=ap.parse_args().limit)
