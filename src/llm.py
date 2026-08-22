@@ -1,14 +1,20 @@
 """Provider-agnostic LLM wrapper (backend: Groq free tier, gpt-oss-120b).
 
-The rest of the codebase calls llm.chat / llm.chat_json only, so switching
-providers means editing this one file. Groq's API is OpenAI-compatible, so the
-tool-calling agent (built later) also lives behind this wrapper.
+The rest of the codebase calls llm.chat / llm.chat_json / llm.chat_tools only, so
+switching providers means editing this one file. Groq's API is OpenAI-compatible,
+so the tool-calling agent also lives behind this wrapper.
+
+Rate-limit handling: Groq's free tier caps at 8000 tokens/minute (TPM) and a
+daily token budget (TPD). We wait out transient per-minute limits (they clear in
+seconds) but fail fast on the daily one (its retry-after is ~40 min).
 """
 from __future__ import annotations
 
 import json
+import re
+import time
 
-from groq import Groq
+from groq import Groq, RateLimitError
 
 from src import config
 
@@ -23,20 +29,35 @@ def _get() -> Groq:
         if not config.GROQ_API_KEY or "PASTE" in config.GROQ_API_KEY:
             raise RuntimeError("GROQ_API_KEY is not set. Add your key to the .env file "
                                "(get one free at https://console.groq.com/keys).")
-        _client = Groq(api_key=config.GROQ_API_KEY, max_retries=2, timeout=90.0)
+        # max_retries=0: we handle retries ourselves so we can distinguish TPM from TPD.
+        _client = Groq(api_key=config.GROQ_API_KEY, max_retries=0, timeout=90.0)
     return _client
+
+
+def _create(**params):
+    """Call Groq, waiting out per-minute (TPM) rate limits but not the daily (TPD) one."""
+    for attempt in range(6):
+        try:
+            return _get().chat.completions.create(**params)
+        except RateLimitError as e:
+            msg = str(e)
+            if "per day" in msg or "TPD" in msg:
+                raise                                   # daily budget gone; don't sleep ~40 min
+            wait = re.search(r"try again in ([\d.]+)s", msg)
+            if attempt == 5:
+                raise
+            time.sleep(min((float(wait.group(1)) + 1) if wait else 12.0, 25.0))
 
 
 def chat(system: str, user: str, *, model: str = DEFAULT_MODEL,
          max_tokens: int = 512, temperature: float = 0.0, json_mode: bool = False):
     """One chat turn. Returns (text, usage). json_mode forces a valid JSON object."""
-    kwargs = {"response_format": {"type": "json_object"}} if json_mode else {}
-    resp = _get().chat.completions.create(
-        model=model, max_tokens=max_tokens, temperature=temperature,
-        messages=[{"role": "system", "content": system},
-                  {"role": "user", "content": user}],
-        **kwargs,
-    )
+    params = {"model": model, "max_tokens": max_tokens, "temperature": temperature,
+              "messages": [{"role": "system", "content": system},
+                           {"role": "user", "content": user}]}
+    if json_mode:
+        params["response_format"] = {"type": "json_object"}
+    resp = _create(**params)
     return resp.choices[0].message.content, resp.usage
 
 
@@ -51,8 +72,6 @@ def chat_tools(messages: list, tools: list, *, model: str = DEFAULT_MODEL,
     """One tool-calling turn. Returns (message, usage). The message may carry
     .content (final text) and/or .tool_calls (requests for us to run tools).
     This is the raw API surface the hand-written agent loop drives."""
-    resp = _get().chat.completions.create(
-        model=model, messages=messages, tools=tools, tool_choice="auto",
-        max_tokens=max_tokens, temperature=temperature,
-    )
+    resp = _create(model=model, messages=messages, tools=tools, tool_choice="auto",
+                   max_tokens=max_tokens, temperature=temperature)
     return resp.choices[0].message, resp.usage
