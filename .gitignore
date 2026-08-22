@@ -24,8 +24,9 @@ data/app.db
 data/manifest.jsonl
 !data/**/.gitkeep
 
-# --- OS / editor ---
+# --- OS / editor / tooling ---
 .DS_Store
 Thumbs.db
 .vscode/
+.claude/
 *.log
