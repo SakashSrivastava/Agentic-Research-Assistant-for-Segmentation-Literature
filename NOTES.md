@@ -113,11 +113,13 @@ papers/day; currently 132/275 papers, 829 verified rows across ~10 anatomies.
 
 Multi-stage `Dockerfile`: CPU-only torch + baked embedding model, no secrets and
 no `data/` in the image. `/health` endpoint for the load balancer.
-`.github/workflows/deploy.yml`: push to main -> build -> push to ECR -> deploy on
-EC2 over SSH -> `/health` check. Secrets in GitHub Secrets; `data/` mounted
-read-only on the instance (never rebuilt in the container). Configs tested
-locally (Flask test client: `/health` 200, `/` renders); live AWS provisioning
-left manual to avoid idle billing.
+`.github/workflows/deploy.yml`: build -> push to ECR -> deploy on EC2 over SSH ->
+`/health` check. Secrets in GitHub Secrets; `data/` mounted read-only on the
+instance (never rebuilt in the container). Configs tested locally (Flask test
+client: `/health` 200, `/` renders); live AWS provisioning left manual to avoid
+idle billing. The workflow is `workflow_dispatch`-only for now: with no AWS
+secrets set, a `push`-triggered run red-X's on every commit, so it's manual until
+the instance exists (flip to a push trigger once the Secrets are in place).
 
 ## Questions to answer as we build (from spec §9)
 

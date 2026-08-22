@@ -10,10 +10,11 @@ name: build-and-deploy
 #   EC2_SSH_KEY           private key for the EC2 user (ec2-user)
 #   GROQ_API_KEY          passed into the running container at deploy time
 
+# Manual-trigger only until AWS is provisioned (secrets configured, EC2 + ECR up).
+# Once the required Secrets below exist, add a `push: {branches: [main]}` trigger
+# to deploy automatically on every merge to main.
 on:
-  push:
-    branches: [main]
-  workflow_dispatch: {}          # allow manual runs from the Actions tab
+  workflow_dispatch: {}          # run from the Actions tab -> build-and-deploy -> Run workflow
 
 jobs:
   deploy:
