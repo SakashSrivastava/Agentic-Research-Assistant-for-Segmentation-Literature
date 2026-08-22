@@ -1,0 +1,14 @@
+# Keep the build context small and secrets/data out of the image.
+venv/
+.venv/
+data/            # index, app.db, PDFs — mounted at runtime, not baked
+.env
+.git/
+.github/
+.claude/
+__pycache__/
+*.py[cod]
+*.log
+evals/
+NOTES.md
+README.md

@@ -32,6 +32,12 @@ def _linkify(html: str) -> str:
         html)
 
 
+@app.route("/health")
+def health():
+    """Liveness/readiness probe for the load balancer or EC2 health check."""
+    return {"status": "ok"}, 200
+
+
 @app.route("/", methods=["GET", "POST"])
 def index():
     question = request.form.get("question", "").strip() if request.method == "POST" else ""

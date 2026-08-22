@@ -1,0 +1,67 @@
+name: build-and-deploy
+
+# On every push to main: build the image, push it to Amazon ECR, then deploy it
+# on the EC2 host over SSH. All credentials come from GitHub repo Secrets.
+#
+# Required GitHub Secrets:
+#   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION   (IAM user with ECR push)
+#   ECR_REPOSITORY        e.g. seg-lit-assistant
+#   EC2_HOST              public DNS/IP of the EC2 instance
+#   EC2_SSH_KEY           private key for the EC2 user (ec2-user)
+#   GROQ_API_KEY          passed into the running container at deploy time
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}          # allow manual runs from the Actions tab
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          REPO: ${{ secrets.ECR_REPOSITORY }}
+        run: |
+          IMAGE="$REGISTRY/$REPO"
+          docker build -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:latest" .
+          docker push "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:latest"
+
+      - name: Deploy on EC2 over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          envs: AWS_REGION
+          script: |
+            set -e
+            REGISTRY=$(aws ecr describe-registry --query registryId --output text).dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+            IMAGE="$REGISTRY/${{ secrets.ECR_REPOSITORY }}:latest"
+            aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin "$REGISTRY"
+            docker pull "$IMAGE"
+            docker stop seg-assistant 2>/dev/null || true
+            docker rm   seg-assistant 2>/dev/null || true
+            # data/ lives on the instance (copied via scp or synced from S3) and is mounted read-only
+            docker run -d --name seg-assistant --restart unless-stopped \
+              -p 80:5000 \
+              -e GROQ_API_KEY='${{ secrets.GROQ_API_KEY }}' \
+              -v /home/ec2-user/data:/app/data:ro \
+              "$IMAGE"
+            sleep 5
+            curl -fsS http://localhost/health   # fail the deploy if the app isn't healthy
