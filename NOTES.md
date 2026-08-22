@@ -77,6 +77,48 @@ query embedding can't gather them. Plain RAG cannot do it. The hand-written agen
 
 ---
 
+## Days 4-6 — the agent (metric extraction + hand-written loop)
+
+**Agent 2 (metric extraction, `extract.py`):** one LLM call per paper over its
+tables + results text pulls structured rows (architecture, dataset, anatomy,
+metric, value, case_count) into a SQLite `metrics` table. **Verification pass:**
+every extracted value must appear verbatim in the source or it's discarded (~5%
+caught). That is how the extractor is stopped from inventing scores. Source is
+tables-first so the numbers survive the input cap.
+
+**Hand-written loop (`agent.py`):** a plain `while` loop on Groq's
+(OpenAI-compatible) tool-calling API, no LangChain. Send question + tool schemas;
+the model replies with either a final answer or tool-call requests; we execute
+the Python tool, append the result as a `tool` message, loop. Tools:
+query_metrics / compare_across_papers (read the verified table), search_corpus
+(vector retrieval), fetch_paper_section. Planning + reflection are prompt
+instructions; guardrails are max 8 iterations + a token budget; a trace records
+every tool call. **Proven across tasks** (head-neck, pancreas), 2 steps each when
+query_metrics matches.
+
+**Why the agent (not plain RAG):** single-query retrieval scored ~0.03 on the
+comparative multi-hop questions (Day 3). The agent decomposes the question and
+queries the metrics table per sub-question, which is what makes "which
+architecture is best across papers" answerable.
+
+**Free-tier rate-limit engineering (real lesson):** Groq free tier = 8000
+tokens/min (TPM) + 200k tokens/day (TPD). Naively firing calls failed papers on
+the *per-minute* limit while daily budget remained. Fix in `llm.py`: wait out TPM
+429s (they clear in ~8s) but fail fast on TPD (its retry-after is ~40 min). The
+agent catches a TPD stop and returns a partial answer instead of crashing.
+Extraction and the agent share the daily budget, so the metrics table grows ~50
+papers/day; currently 132/275 papers, 829 verified rows across ~10 anatomies.
+
+## Day 9 — deployment (Docker + CI/CD), token-free
+
+Multi-stage `Dockerfile`: CPU-only torch + baked embedding model, no secrets and
+no `data/` in the image. `/health` endpoint for the load balancer.
+`.github/workflows/deploy.yml`: push to main -> build -> push to ECR -> deploy on
+EC2 over SSH -> `/health` check. Secrets in GitHub Secrets; `data/` mounted
+read-only on the instance (never rebuilt in the container). Configs tested
+locally (Flask test client: `/health` 200, `/` renders); live AWS provisioning
+left manual to avoid idle billing.
+
 ## Questions to answer as we build (from spec §9)
 
 - [ ] Why is the raw layer immutable, and what does that buy?

@@ -167,6 +167,30 @@ python -m src.agent "Which architectures report the best Dice on head and neck s
 python -m src.app     # then open http://localhost:5000
 ```
 
+## Deployment
+
+Containerised with a multi-stage `Dockerfile`: CPU-only torch and the embedding
+model are baked in, but no secrets and no `data/` are, so the image stays generic.
+
+Run it locally (the Groq key comes from the environment, the index/DB is mounted):
+
+```bash
+docker build -t seg-assistant .
+docker run -e GROQ_API_KEY=gsk_... -v "$(pwd)/data:/app/data:ro" -p 5000:5000 seg-assistant
+```
+
+CI/CD is a GitHub Actions workflow (`.github/workflows/deploy.yml`): on push to
+`main` it builds the image, pushes it to Amazon ECR, and deploys it on an EC2
+instance over SSH, finishing with a `/health` check that fails the deploy if the
+app didn't come up. Every credential (AWS keys, EC2 host/key, Groq key) lives in
+GitHub Secrets. The `data/` layer ships to the instance separately (scp or S3
+sync) and is mounted read-only, per the "don't rebuild the index in the container"
+rule.
+
+The Docker and CI/CD configuration is complete and tested locally; live AWS
+provisioning is intentionally left as a manual step to avoid idle billing (set a
+budget alert and tear the instance down after a demo).
+
 ## Repository layout
 
 ```
@@ -226,7 +250,7 @@ Two findings drove the design:
 - [x] Verified metric extraction (Agent 2) into a SQLite metrics table
 - [x] Hand-written planning / tool-calling agent (no LangChain/LangGraph)
 - [x] Flask interface (query -> cited answer -> collapsible agent trace)
-- [ ] Docker + AWS deployment
+- [x] Docker image + GitHub Actions CI/CD (build -> ECR -> EC2); config ready
 - [ ] LangGraph re-implementation and a head-to-head comparison
 
 ## Known limitations (so far)
