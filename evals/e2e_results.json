@@ -1,0 +1,116 @@
+[
+  {
+    "id": "q01",
+    "hop": "single",
+    "baseline": {
+      "faithfulness": 5,
+      "completeness": 5,
+      "citation": 5,
+      "tokens": 1237,
+      "latency": 18.8
+    },
+    "agent": {
+      "faithfulness": 2,
+      "completeness": 5,
+      "citation": 5,
+      "tokens": 5156,
+      "latency": 37.8,
+      "steps": 4
+    }
+  },
+  {
+    "id": "q02",
+    "hop": "single",
+    "baseline": {
+      "faithfulness": 5,
+      "completeness": 5,
+      "citation": 5,
+      "tokens": 1267,
+      "latency": 15.1
+    },
+    "agent": {
+      "faithfulness": 1,
+      "completeness": 1,
+      "citation": 1,
+      "tokens": 11942,
+      "latency": 97.8,
+      "steps": 8
+    }
+  },
+  {
+    "id": "q03",
+    "hop": "single",
+    "baseline": {
+      "faithfulness": 5,
+      "completeness": 5,
+      "citation": 5,
+      "tokens": 1139,
+      "latency": 12.6
+    },
+    "agent": {
+      "faithfulness": 5,
+      "completeness": 5,
+      "citation": 5,
+      "tokens": 4041,
+      "latency": 42.4,
+      "steps": 4
+    }
+  },
+  {
+    "id": "q08",
+    "hop": "multi",
+    "baseline": {
+      "faithfulness": 3,
+      "completeness": 2,
+      "citation": 5,
+      "tokens": 1632,
+      "latency": 15.8
+    },
+    "agent": {
+      "faithfulness": 3,
+      "completeness": 4,
+      "citation": 4,
+      "tokens": 2644,
+      "latency": 13.8,
+      "steps": 2
+    }
+  },
+  {
+    "id": "q41",
+    "hop": "multi",
+    "baseline": {
+      "faithfulness": 4,
+      "completeness": 2,
+      "citation": 5,
+      "tokens": 1572,
+      "latency": 18.4
+    },
+    "agent": {
+      "faithfulness": 2,
+      "completeness": 2,
+      "citation": 1,
+      "tokens": 15880,
+      "latency": 123.8,
+      "steps": 6
+    }
+  },
+  {
+    "id": "q43",
+    "hop": "multi",
+    "baseline": {
+      "faithfulness": 3,
+      "completeness": 2,
+      "citation": 2,
+      "tokens": 1255,
+      "latency": 14.0
+    },
+    "agent": {
+      "faithfulness": 1,
+      "completeness": 1,
+      "citation": 1,
+      "tokens": 20557,
+      "latency": 150.8,
+      "steps": 8
+    }
+  }
+]

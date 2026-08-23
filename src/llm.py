@@ -68,10 +68,11 @@ def chat_json(system: str, user: str, **kw):
 
 
 def chat_tools(messages: list, tools: list, *, model: str = DEFAULT_MODEL,
-               max_tokens: int = 1500, temperature: float = 0.0):
+               max_tokens: int = 1500, temperature: float = 0.0, tool_choice: str = "auto"):
     """One tool-calling turn. Returns (message, usage). The message may carry
     .content (final text) and/or .tool_calls (requests for us to run tools).
-    This is the raw API surface the hand-written agent loop drives."""
-    resp = _create(model=model, messages=messages, tools=tools, tool_choice="auto",
+    tool_choice='none' forces a text answer (used to finalize). This is the raw
+    API surface the hand-written agent loop drives."""
+    resp = _create(model=model, messages=messages, tools=tools, tool_choice=tool_choice,
                    max_tokens=max_tokens, temperature=temperature)
     return resp.choices[0].message, resp.usage

@@ -160,17 +160,43 @@ def _msg_to_dict(msg):
     return d
 
 
+def _finalize(messages: list) -> tuple:
+    """Force a tool-free answer from the evidence already gathered. Used when a
+    guardrail trips (max iters / budget) so the run still produces a real answer
+    instead of a "stopped" placeholder. Returns (text_or_None, in, out)."""
+    msgs = messages + [{"role": "user", "content":
+        "Stop gathering. Using ONLY the evidence already gathered above, give your best "
+        "concise final answer now, citing the paper_id for each claim. If the evidence is "
+        "insufficient for part of the question, say so explicitly."}]
+    try:
+        msg, usage = llm.chat_tools(msgs, TOOLS, tool_choice="none")
+        return msg.content, usage.prompt_tokens, usage.completion_tokens
+    except Exception:  # noqa: BLE001 - e.g. daily budget also gone
+        return None, 0, 0
+
+
 def answer(question: str, verbose: bool = True) -> dict:
     messages = [{"role": "system", "content": SYSTEM},
                 {"role": "user", "content": question}]
-    trace, tokens_in, tokens_out = [], 0, 0
+    trace, tokens_in, tokens_out, bad_json = [], 0, 0, 0
 
     for step in range(1, MAX_ITERS + 1):
         try:
             msg, usage = llm.chat_tools(messages, TOOLS)
-        except Exception as ex:  # noqa: BLE001 - e.g. daily token budget exhausted
-            return {"answer": f"(stopped: LLM unavailable - {ex})", "trace": trace,
-                    "steps": step, "tokens": (tokens_in, tokens_out)}
+        except Exception as ex:  # noqa: BLE001
+            s = str(ex)
+            # The model sometimes emits invalid JSON for a tool call (Groq 400s the
+            # whole turn). Nudge it to retry rather than aborting the run.
+            if ("tool_use_failed" in s or "parse tool call" in s) and bad_json < 2:
+                bad_json += 1
+                messages.append({"role": "user", "content":
+                    "Your previous tool call had invalid JSON arguments. Retry it with valid "
+                    "JSON, or give your final answer if you already have enough evidence."})
+                continue
+            # Otherwise (daily budget gone, or repeated bad JSON): salvage an answer.
+            final, ti, to = _finalize(messages)
+            return {"answer": final or f"(stopped: LLM unavailable - {s[:120]})",
+                    "trace": trace, "steps": step, "tokens": (tokens_in + ti, tokens_out + to)}
         tokens_in += usage.prompt_tokens
         tokens_out += usage.completion_tokens
         messages.append(_msg_to_dict(msg))
@@ -185,7 +211,7 @@ def answer(question: str, verbose: bool = True) -> dict:
                 args = json.loads(tc.function.arguments or "{}")
                 result = DISPATCH[name](**args)
             except Exception as ex:  # noqa: BLE001
-                result = {"error": str(ex)}
+                args, result = {}, {"error": str(ex)}
             trace.append({"step": step, "tool": name, "args": args,
                           "result_preview": str(result)[:200]})
             if verbose:
@@ -194,11 +220,13 @@ def answer(question: str, verbose: bool = True) -> dict:
                              "content": json.dumps(result, default=str)[:2000]})
 
         if tokens_in + tokens_out > TOKEN_BUDGET:               # guardrail: cost cap
-            return {"answer": "(stopped: token budget exceeded)", "trace": trace,
-                    "steps": step, "tokens": (tokens_in, tokens_out)}
+            break
 
-    return {"answer": "(stopped: reached max iterations)", "trace": trace,
-            "steps": MAX_ITERS, "tokens": (tokens_in, tokens_out)}
+    # Guardrail tripped (max iters or budget): force a final answer from evidence.
+    final, ti, to = _finalize(messages)
+    return {"answer": final or "(stopped: could not produce a final answer)",
+            "trace": trace, "steps": min(step, MAX_ITERS),
+            "tokens": (tokens_in + ti, tokens_out + to)}
 
 
 if __name__ == "__main__":

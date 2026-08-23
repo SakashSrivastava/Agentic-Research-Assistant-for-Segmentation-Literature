@@ -109,6 +109,41 @@ agent catches a TPD stop and returns a partial answer instead of crashing.
 Extraction and the agent share the daily budget, so the metrics table grows ~50
 papers/day; currently 132/275 papers, 829 verified rows across ~10 anatomies.
 
+## Day 7 — end-to-end eval (agent vs baseline RAG, LLM-judged)
+
+**Built:** `eval_e2e.py` answers each question two ways -- baseline RAG (retrieve
+top-5, one stuffed LLM call) and the agent -- then an LLM judge scores each answer
+1-5 on faithfulness, completeness, citation. Balanced sampling (`--per-hop N`) so
+single- and multi-hop are compared fairly.
+
+**First run looked bad for the agent** (baseline won every metric), but inspecting
+the actual answers showed the cause was two *agent robustness bugs*, not a quality
+gap -- and the eval is what surfaced them:
+  1. **Malformed tool-call JSON.** gpt-oss occasionally emits invalid JSON for a
+     tool call (e.g. a trailing comma); Groq 400s the whole turn. The old loop
+     treated that as fatal and returned nothing. Fix: catch it, nudge the model
+     to retry with valid JSON, continue.
+  2. **No answer on max-iters.** Hitting the 8-step guardrail returned "reached
+     max iterations" instead of using the evidence already gathered. Fix:
+     `_finalize()` forces a tool-free answer (tool_choice='none') from the
+     gathered context when any guardrail trips.
+After the fixes both failing questions produce real, cited answers.
+
+**Two honest findings that survive the fixes:**
+  - **Single-hop pinpoint is retrieval's home turf.** For "what DSC does WAU-net
+    get on the optic chiasm?", baseline retrieval grabs the exact table chunk and
+    answers; the agent's `fetch_paper_section` returned prose that omitted the
+    table value, so it (correctly, but incompletely) said "not available". The
+    agent earns its cost on comparative multi-hop, not pinpoint lookups.
+  - **Judge caveat.** The judge scores without ground-truth evidence, so it
+    rewards a confident baseline number and penalizes the agent's honest "not
+    available" -- even if the baseline number is the hallucinated one. A stronger
+    judge should see the gold passage. Recorded as a known limitation; the raw
+    per-question answers matter more than the aggregate here.
+
+The agent is token-heavy (~15-25k tokens/question once it finalizes), so a full
+clean re-run of the headline table wants a fresh daily budget run on its own.
+
 ## Day 9 — deployment (Docker + CI/CD), token-free
 
 Multi-stage `Dockerfile`: CPU-only torch + baked embedding model, no secrets and

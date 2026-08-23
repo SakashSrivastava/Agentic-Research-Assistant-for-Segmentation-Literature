@@ -46,8 +46,14 @@ def baseline_rag(question: str, k: int = 5):
 
 
 def judge(question: str, answer: str):
-    data, _ = llm.chat_json(JUDGE_SYS, f"Question: {question}\n\nAnswer:\n{answer}",
-                            max_tokens=300)
+    # gpt-oss reasons before answering, so give room for both the reasoning and
+    # the JSON. A judge failure records null scores rather than killing the run.
+    try:
+        data, _ = llm.chat_json(JUDGE_SYS, f"Question: {question}\n\nAnswer:\n{answer}",
+                                max_tokens=900)
+    except Exception as e:
+        print(f"    (judge failed: {str(e)[:80]})")
+        data = {}
     return {k: data.get(k) for k in ("faithfulness", "completeness", "citation")}
 
 
@@ -57,9 +63,13 @@ def _avg(rows, method, key, hop=None):
     return sum(vals) / len(vals) if vals else 0.0
 
 
-def run(limit: int | None = None) -> None:
+def run(limit: int | None = None, per_hop: int | None = None) -> None:
     qs = [json.loads(l) for l in open(QUESTIONS, encoding="utf-8")]
-    if limit:
+    if per_hop:
+        single = [q for q in qs if q["hop"] == "single"][:per_hop]
+        multi = [q for q in qs if q["hop"] == "multi"][:per_hop]
+        qs = single + multi
+    elif limit:
         qs = qs[:limit]
     rows = []
     for q in qs:
@@ -92,5 +102,7 @@ def run(limit: int | None = None) -> None:
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Day 7 end-to-end eval (baseline RAG vs agent).")
-    ap.add_argument("--limit", type=int, default=None)
-    run(limit=ap.parse_args().limit)
+    ap.add_argument("--limit", type=int, default=None, help="first N questions")
+    ap.add_argument("--per-hop", type=int, default=None, help="N single + N multi (balanced)")
+    args = ap.parse_args()
+    run(limit=args.limit, per_hop=args.per_hop)
