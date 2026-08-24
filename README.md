@@ -22,14 +22,48 @@ and getting it to work is the core of the project.
 
 ## Status
 
-Work in progress, built one stage at a time. The full ingestion pipeline
-(acquire through index) is done and validated: the corpus is embedded and
-queryable through both a vector store and a keyword store, with a labelled
-retrieval eval in place. The multi-step agent, the web UI, and deployment are
-next (see the roadmap below).
+The end-to-end system works. The full ingestion pipeline (acquire through index)
+is done and validated, the corpus is queryable through a vector store and a
+keyword store with a labelled retrieval eval, the reported results are extracted
+into a verified metrics table, and the hand-written multi-step agent answers
+questions over all of it with citations, served both from a CLI and a Flask UI.
+It is containerised with a GitHub Actions CI/CD pipeline. The one remaining piece
+is the LangGraph re-implementation and head-to-head comparison (see the roadmap).
 
 To be clear about what this is not: it is a working system with measured results,
 not a production service. There is no monitoring, auth, or unattended operation.
+It runs on Groq's free tier, so a full evaluation run is paced across daily token
+budgets rather than executed in one shot.
+
+## Architecture
+
+Ingestion is deterministic code (top); the two agents (metric extraction and the
+planning agent) are the only parts that call an LLM. At query time the planning
+agent reads the three stores through tools and answers with citations.
+
+```mermaid
+flowchart TB
+  subgraph Ingest[Ingestion pipeline: deterministic code]
+    A[arXiv PDFs] --> B[Layout-aware parse<br/>columns + tables]
+    B --> C[Section recovery] --> D[Clean: 6 transforms]
+    D --> E[Enrich: anatomy + modality]
+    E --> F[Section-aware chunk<br/>tables kept whole] --> G[Embed: BGE-small]
+  end
+  G --> V[(ChromaDB<br/>vectors)]
+  F --> KW[(rank_bm25<br/>keyword)]
+  E --> P[(SQLite<br/>papers)]
+  D --> X[Extraction agent<br/>1 LLM call/paper<br/>verify verbatim]
+  X --> T[(SQLite<br/>metrics table)]
+
+  subgraph Query[Query time]
+    Q([User question]) --> AG{{Planning agent<br/>plan, tool-call, reflect}}
+    AG -->|query_metrics<br/>compare_across_papers| T
+    AG -->|search_corpus| V
+    AG -->|fetch_paper_section| D
+    AG --> ANS[Cited answer<br/>+ agent trace]
+  end
+  ANS --> UI[Flask UI / CLI]
+```
 
 ## Where it stands right now
 
@@ -108,8 +142,11 @@ Only the parts that genuinely need judgement get an agent.
     actually appear in the source. Results are saved to
     `data/parse_validation.json`.
 
-Still to come: the hand-written agent loop, a verified metric-extraction agent,
-a Flask UI, and deployment.
+On top of this ingestion pipeline sit the two things that make it a research
+assistant rather than a search box: a verified metric-extraction agent that
+turns the reported results into a structured, queryable table, and a
+hand-written planning agent that answers questions over it (both described
+below).
 
 ## Stack
 
@@ -198,12 +235,13 @@ data/
   raw/            source PDFs + API metadata (immutable, re-downloadable)
   parsed/         page-level blocks with layout info
   clean/          section-structured, cleaned text
-  chunks/         (coming) final chunks with metadata
-  index/          (coming) chroma collection + bm25 index
+  chunks/         final chunks with metadata
+  index/          chroma collection + bm25 index
   manifest.jsonl  per-paper record + pipeline status
-  app.db          (coming) sqlite: extracted metrics table
+  app.db          sqlite: papers + extracted metrics table
 src/              pipeline + agent code
-evals/            (coming) retrieval + end-to-end evaluation sets
+templates/        Flask UI (query, cited answer, collapsible trace)
+evals/            retrieval + end-to-end evaluation sets
 NOTES.md          plain-language design log, the reasoning behind each decision
 ```
 
@@ -236,6 +274,45 @@ Two findings drove the design:
   comparative question ("which architectures work best for head-and-neck?") needs
   tables from several papers, which one query embedding cannot gather. This is the
   ceiling that motivates the multi-step agent.
+
+## Metrics glossary
+
+Two different families of numbers appear in this project. The first is data the
+system extracts; the second is how the system grades itself.
+
+**Metrics reported inside the papers (extracted, not computed here):**
+
+- **Dice / DSC (Dice Similarity Coefficient):** overlap between the predicted and
+  ground-truth masks, `2|P and G| / (|P| + |G|)`, scored 0 to 1 (higher is
+  better). The dominant segmentation metric; "Dice" and "DSC" are the same thing,
+  so the agent treats them as synonyms.
+- **IoU / Jaccard:** overlap over union, `|P and G| / |P or G|`. Same idea as
+  Dice but stricter, always lower than Dice for the same masks.
+- **HD95 (95th-percentile Hausdorff Distance):** worst-case boundary error in mm,
+  ignoring the top 5% of outliers. A distance, so lower is better. Each value is
+  stored with its **case count**, because a score on 300 cases is stronger
+  evidence than the same score on 12.
+
+**Metrics that grade this system:**
+
+- **recall@5:** fraction of the gold answer-chunks that appear in the top 5
+  retrieved results. Measures whether the right evidence reaches the model.
+- **paper-hit@5:** whether the right *paper* is in the top 5, even if the exact
+  chunk is missed. Added to separate "found the document" from "found the exact
+  table", which is what explained why keyword and reranking methods behaved as
+  they did.
+- **MRR (Mean Reciprocal Rank):** `1/rank` of the first correct hit, averaged.
+  Rewards ranking the answer near the top, not just somewhere in the list.
+- **faithfulness / completeness / citation (1 to 5):** an LLM judge grades each
+  final answer, faithfulness against the gold evidence (a number not in the
+  evidence is a hallucination), completeness for coverage, citation for whether
+  claims are traced to a paper_id.
+- **tokens and latency per query:** the cost side. These quantify the agent's
+  overhead versus plain retrieval, so the trade-off is explicit rather than
+  assumed.
+- **extraction verification catch rate:** the share of extracted numbers
+  discarded because they were not found verbatim in the source. This is the
+  anti-hallucination guarantee behind the metrics table.
 
 ## Roadmap
 

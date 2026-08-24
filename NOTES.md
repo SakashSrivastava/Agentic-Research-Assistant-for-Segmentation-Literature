@@ -135,11 +135,17 @@ After the fixes both failing questions produce real, cited answers.
     answers; the agent's `fetch_paper_section` returned prose that omitted the
     table value, so it (correctly, but incompletely) said "not available". The
     agent earns its cost on comparative multi-hop, not pinpoint lookups.
-  - **Judge caveat.** The judge scores without ground-truth evidence, so it
-    rewards a confident baseline number and penalizes the agent's honest "not
-    available" -- even if the baseline number is the hallucinated one. A stronger
-    judge should see the gold passage. Recorded as a known limitation; the raw
-    per-question answers matter more than the aggregate here.
+  - **Judge grounding (fixed).** The first judge scored blind (no ground truth),
+    so it could reward a confident baseline number and penalize the agent's honest
+    "not available". Fix: the judge now receives the gold passages
+    (`gold_chunk_ids`) as REFERENCE EVIDENCE and grades faithfulness against them
+    -- a number absent from the evidence is a hallucination. Bonus insight this
+    exposed: for q02 the gold evidence IS the results table (optic-chiasm DSC is
+    there), so the agent's "not available" is really an *incompleteness* -- its
+    `fetch_paper_section` read prose and missed the table, while baseline
+    retrieval grabbed the table chunk. Confirms single-hop pinpoint favours
+    retrieval, and the agent should prefer search_corpus/query_metrics over
+    section prose for exact values.
 
 The agent is token-heavy (~15-25k tokens/question once it finalizes), so a full
 clean re-run of the headline table wants a fresh daily budget run on its own.
@@ -158,18 +164,107 @@ the instance exists (flip to a push trigger once the Secrets are in place).
 
 ## Questions to answer as we build (from spec §9)
 
-- [ ] Why is the raw layer immutable, and what does that buy?
-- [ ] Why parse with layout information instead of plain text?
-- [ ] What breaks if chunk IDs are not stable across runs?
-- [ ] Why prepend title and section before embedding?
-- [ ] Why keep both a vector index and a BM25 index?
-- [ ] Why did we chunk this way, and what broke with the naive approach?
-- [ ] What does the re-ranker do that the embedding model cannot?
-- [ ] Why is metric extraction agentic when chunking is not?
-- [ ] How do you stop the metric extractor inventing numbers?
-- [ ] Walk through one full agent trace.
-- [ ] How does the agent avoid looping forever?
-- [ ] What does one query cost, and where does the time go?
-- [ ] What percentage of papers failed to parse, and why?
-- [ ] What does LangGraph do that you cannot do yourself?
-- [ ] What still fails?
+These are the interview questions. Short answers in my own words.
+
+**Q. Why is the raw layer immutable, and what does that buy?**
+Everything downstream (parsed, clean, chunks, index, metrics) is a pure function
+of `data/raw`, so I never edit raw in place. That buys reproducibility (any stage
+can be rebuilt from raw), safe experiments (a chunking change re-runs from
+`parsed/`, it never re-downloads), and a clean audit trail: if a number looks
+wrong I can trace it back to an unchanged source PDF.
+
+**Q. Why parse with layout information instead of plain text?**
+Plain text extraction reads a two-column paper straight across, so the two
+columns interleave into nonsense, and it flattens tables into a run of numbers
+with no rows or columns. The scores live in those tables. Reading font size,
+boldness, and position lets me rebuild reading order, detect columns, and pull
+tables out as structured rows so the numbers survive.
+
+**Q. What breaks if chunk IDs are not stable across runs?**
+The retrieval gold set is labelled by chunk ID. If IDs are re-assigned on every
+run (e.g. a running counter over a dict), the same text gets a new ID and every
+labelled question silently points at the wrong chunk, so the eval measures noise.
+IDs are deterministic (`{paper_id}::{section}::{index}`) so the gold set stays
+valid across rebuilds.
+
+**Q. Why prepend title and section before embedding?**
+A bare results chunk ("0.92 vs 0.88 ...") has no topic signal. Prepending the
+paper title and section name gives the embedding context ("this is the Results of
+a head-and-neck OAR paper"), so a query about head-and-neck lands near it. The
+prefix is embedded but not shown in the answer.
+
+**Q. Why keep both a vector index and a BM25 index?**
+They fail in opposite ways. Vector search is strong on meaning ("head-and-neck"
+matching "OARs") but fuzzy on exact tokens. BM25 is exact on literal strings
+(architecture names like "nnU-Net", dataset names, metric abbreviations) but
+blind to synonyms. The eval showed vector wins for exact-chunk recall while BM25
+still finds the right paper 83% of the time, so BM25 is kept as a paper-level
+signal and for exact-name lookups.
+
+**Q. Why did we chunk this way, and what broke with the naive approach?**
+Section-aware, tables kept whole, sized to the embedding model's real 512-token
+limit. The naive approach (fixed 800-token windows with overlap) produced chunks
+that exceeded 512, and BGE-small silently truncates past that, so the tail of
+every long chunk was never embedded. It also split tables across chunk
+boundaries, destroying the very rows the system needs.
+
+**Q. What does the re-ranker do that the embedding model cannot?**
+In theory: a cross-encoder reads the query and passage together and scores true
+relevance, rather than comparing two independently-made vectors. In practice here
+it backfired: it scores number-heavy tables below fluent prose, so it demoted the
+exact answers. Measured, found to hurt, and dropped (also ~0.6 passages/sec on
+CPU, far too slow). That is a stronger story than "reranking helped".
+
+**Q. Why is metric extraction agentic when chunking is not?**
+Chunking is a deterministic rule (split on sections, count tokens), so it is
+plain code, faster and reproducible. Pulling a clean (architecture, dataset,
+metric, value, cases) tuple out of an inconsistent table plus its caption plus
+prose needs judgement about what maps to what, which is what an LLM call is for.
+Rule of thumb: rules where rules suffice, an agent only where judgement is
+genuinely required.
+
+**Q. How do you stop the metric extractor inventing numbers?**
+A verification pass: every extracted value must appear verbatim in the source
+text or it is discarded (about 5% are caught and dropped). The LLM proposes;
+string matching against the source disposes. Nothing reaches the metrics table
+that is not literally in a paper.
+
+**Q. Walk through one full agent trace.**
+"Best Dice on head-and-neck?" -> step 1 `query_metrics(anatomical_target="head
+and neck", metric_name="Dice")` returns ranked rows with architecture / value /
+case_count / paper_id -> the model sees enough and writes a ranked, cited answer.
+Two steps. Harder comparative questions add a `search_corpus` step for context
+before answering. Every call is recorded in a trace shown under the answer.
+
+**Q. How does the agent avoid looping forever?**
+Two guardrails: a hard cap of 8 iterations and a token budget. When either trips,
+`_finalize()` forces a tool-free answer from the evidence already gathered, so a
+guardrail produces a real (if partial) answer instead of an abort. It also
+recovers from a malformed tool call by nudging the model to retry rather than
+dying.
+
+**Q. What does one query cost, and where does the time go?**
+From the end-to-end eval: plain RAG is ~1.3k tokens and ~16s; the agent is
+~10-25k tokens and ~60-95s. The extra cost is the multiple tool-calling round
+trips, and most of the wall-clock time is waiting out the 8000 tokens/min free
+tier limit between calls, not compute. The agent is only worth that cost on
+comparative multi-hop questions, where plain RAG scores ~0.03.
+
+**Q. What percentage of papers failed to parse, and why?**
+1 of 276 (0.4%) was excluded: a scanned PDF with no text layer, detected and set
+aside rather than ingested as empty text. Two more parse but have no detectable
+section headings (unusual formatting) and are flagged for a repair pass. Text
+coverage vs source is 0.9997 mean.
+
+**Q. What does LangGraph do that you cannot do yourself? _(Part B, pending)_**
+To be answered after the LangGraph re-implementation. Expected answer: nothing I
+cannot do by hand, but it provides state management, retries, branching, and
+persistence as reusable primitives instead of hand-rolled loop code. The point of
+building the loop by hand first is to know exactly what the framework is doing.
+
+**Q. What still fails?**
+Single-hop pinpoint answers where the value is in a table but the agent fetches
+prose (it should prefer search_corpus/query_metrics for exact values). Complex
+tables where `find_tables()` merges cells (values stay correct, grid does not).
+The metrics table covers 132/275 papers so far (daily-budget-limited). The LLM
+judge is only as good as the gold evidence it is shown. Corpus is arXiv-only.
