@@ -43,7 +43,7 @@ agent reads the three stores through tools and answers with citations.
 
 ```mermaid
 flowchart TB
-  subgraph Ingest[Ingestion pipeline: deterministic code]
+  subgraph Ingest["Ingestion pipeline (deterministic code)"]
     A[arXiv PDFs] --> B[Layout-aware parse<br/>columns + tables]
     B --> C[Section recovery] --> D[Clean: 6 transforms]
     D --> E[Enrich: anatomy + modality]
@@ -55,7 +55,7 @@ flowchart TB
   D --> X[Extraction agent<br/>1 LLM call/paper<br/>verify verbatim]
   X --> T[(SQLite<br/>metrics table)]
 
-  subgraph Query[Query time]
+  subgraph Query["Query time"]
     Q([User question]) --> AG{{Planning agent<br/>plan, tool-call, reflect}}
     AG -->|query_metrics<br/>compare_across_papers| T
     AG -->|search_corpus| V
