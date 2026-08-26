@@ -1,4 +1,4 @@
-"""Stage 4: text cleaning, applied per section in clean/{paper_id}.json.
+"""Text cleaning, applied per section in clean/{paper_id}.json.
 
 Six ordered transforms: NFKC -> de-hyphenate -> strip repeated headers/footers
 -> (lines already joined in parse) -> replace display equations -> collapse
@@ -124,7 +124,7 @@ def run(limit: int | None = None, force: bool = False) -> None:
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description="Stage 4 text cleaning.")
+    ap = argparse.ArgumentParser(description="Text cleaning.")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--force", action="store_true")
     args = ap.parse_args()

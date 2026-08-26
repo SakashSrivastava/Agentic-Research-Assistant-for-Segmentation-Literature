@@ -9,6 +9,8 @@ name: build-and-deploy
 #   EC2_HOST              public DNS/IP of the EC2 instance
 #   EC2_SSH_KEY           private key for the EC2 user (ec2-user)
 #   GROQ_API_KEY          passed into the running container at deploy time
+#   FLASK_SECRET_KEY      signs session cookies (a long random string)
+#   ADMIN_EMAIL           default target for the manage_admin grant command
 
 # Manual-trigger only until AWS is provisioned (secrets configured, EC2 + ECR up).
 # Once the required Secrets below exist, add a `push: {branches: [main]}` trigger
@@ -58,11 +60,27 @@ jobs:
             docker pull "$IMAGE"
             docker stop seg-assistant 2>/dev/null || true
             docker rm   seg-assistant 2>/dev/null || true
-            # data/ lives on the instance (copied via scp or synced from S3) and is mounted read-only
+            # Corpus data/ lives on the instance (scp or S3 sync), mounted read-only.
+            # User data (accounts + history) persists in a named volume, NOT rebuilt.
+            # NOTE: HTTPS_ONLY=true assumes TLS is terminated in front (ALB or certbot);
+            # the app trusts X-Forwarded-Proto. Set it false if serving plain HTTP.
             docker run -d --name seg-assistant --restart unless-stopped \
               -p 80:5000 \
               -e GROQ_API_KEY='${{ secrets.GROQ_API_KEY }}' \
+              -e FLASK_SECRET_KEY='${{ secrets.FLASK_SECRET_KEY }}' \
+              -e ADMIN_EMAIL='${{ secrets.ADMIN_EMAIL }}' \
+              -e HTTPS_ONLY='true' \
+              -e BASE_URL='${{ secrets.BASE_URL }}' \
+              -e REQUIRE_EMAIL_VERIFICATION='true' \
+              -e SMTP_HOST='${{ secrets.SMTP_HOST }}' \
+              -e SMTP_USER='${{ secrets.SMTP_USER }}' \
+              -e SMTP_PASSWORD='${{ secrets.SMTP_PASSWORD }}' \
+              -e SMTP_FROM='${{ secrets.SMTP_FROM }}' \
               -v /home/ec2-user/data:/app/data:ro \
+              -v /home/ec2-user/data/index/chroma:/app/data/index/chroma \
+              -v seglit_userdata:/app/userdata \
               "$IMAGE"
             sleep 5
             curl -fsS http://localhost/health   # fail the deploy if the app isn't healthy
+            # First deploy only: grant yourself admin after signing up on the site:
+            #   docker exec seg-assistant python -m src.manage_admin grant you@email.com

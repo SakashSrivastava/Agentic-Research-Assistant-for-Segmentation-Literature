@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Your history{% endblock %}
+
+{% block styles %}
+    .qitem { margin-top:16px; }
+    .qitem summary { cursor:pointer; font-weight:600; color:var(--ink); font-size:1rem; list-style:none; }
+    .qitem summary::-webkit-details-marker { display:none; }
+    .qitem summary .when { color:var(--muted); font-weight:400; font-size:.8rem; margin-left:8px; }
+    .qitem summary .fail { color:var(--bad); font-size:.75rem; font-weight:600; margin-left:8px; }
+    .qbody { margin-top:10px; }
+    .answer table { border-collapse:collapse; margin:12px 0; }
+    .answer th, .answer td { border:1px solid var(--border); padding:6px 10px; }
+    .answer th { background:var(--code); }
+    .answer code { background:var(--code); padding:1px 6px; border-radius:5px; font-family:"IBM Plex Mono",monospace; }
+    .meta { color:var(--muted); font-size:.8rem; margin-top:8px; font-family:"IBM Plex Mono",monospace; }
+    .empty { color:var(--muted); margin-top:24px; }
+{% endblock %}
+
+{% block content %}
+  <header>
+    <p class="eyebrow">Your account</p>
+    <h1>Search history</h1>
+    <p class="sub">Every question you have asked, most recent first. Click one to reopen its answer.</p>
+  </header>
+
+  {% if not items %}
+    <p class="empty">No searches yet. <a href="{{ url_for('index') }}">Ask your first question →</a></p>
+  {% endif %}
+
+  {% for it in items %}
+  <details class="card qitem">
+    <summary>
+      {{ it.question }}
+      <span class="when">{{ it.created_at[:16]|replace('T',' ') }} UTC</span>
+      {% if not it.ok %}<span class="fail">failed</span>{% endif %}
+    </summary>
+    <div class="qbody">
+      {% if it.ok %}
+        <div class="answer">{{ it.answer_html | safe }}</div>
+        <div class="meta">{{ it.steps }} agent steps &middot; {{ "{:,}".format(it.tokens or 0) }} tokens</div>
+      {% else %}
+        <div class="meta">This query did not complete: {{ it.answer }}</div>
+      {% endif %}
+    </div>
+  </details>
+  {% endfor %}
+{% endblock %}

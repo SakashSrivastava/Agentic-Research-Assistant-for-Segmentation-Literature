@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Admin{% endblock %}
+
+{% block styles %}
+    .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin:24px 0 6px; }
+    .stat { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px 18px; box-shadow:var(--shadow); }
+    .stat .n { font-family:"IBM Plex Mono",monospace; font-size:1.6rem; font-weight:500; font-variant-numeric:tabular-nums; }
+    .stat .l { font-size:.78rem; color:var(--muted); margin-top:2px; }
+    .stat.warn .n { color:var(--bad); }
+    .fail { color:var(--bad); font-weight:600; }
+    .ok { color:var(--good); }
+    .muted { color:var(--muted); }
+    .trunc { max-width:420px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+{% endblock %}
+
+{% block content %}
+  <header>
+    <p class="eyebrow">Admin</p>
+    <h1>Usage dashboard</h1>
+    <p class="sub">Everything across all users. Visible only to admin accounts.</p>
+  </header>
+
+  <section class="stats">
+    <div class="stat"><div class="n">{{ "{:,}".format(stats.users) }}</div><div class="l">Registered users</div></div>
+    <div class="stat"><div class="n">{{ "{:,}".format(stats.queries) }}</div><div class="l">Total queries</div></div>
+    <div class="stat"><div class="n">{{ "{:,}".format(stats.tokens) }}</div><div class="l">Tokens consumed</div></div>
+    <div class="stat {% if stats.failed %}warn{% endif %}"><div class="n">{{ "{:,}".format(stats.failed) }}</div><div class="l">Failed queries</div></div>
+  </section>
+
+  <section class="stats">
+    <div class="stat"><div class="n">{{ "{:,}".format(cache.entries) }}</div><div class="l">Cached answers</div></div>
+    <div class="stat"><div class="n">{{ "{:,}".format(cache.hits) }}</div><div class="l">Cache hits (tokens saved)</div></div>
+    <div class="stat"><div class="n">{{ "{:,}".format(cache.up) }}</div><div class="l">Helpful votes</div></div>
+    <div class="stat"><div class="n">{{ "{:,}".format(cache.down) }}</div><div class="l">Not-helpful votes</div></div>
+  </section>
+
+  <div class="card">
+    <h2>Users</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Email</th><th>Role</th><th class="num">Queries</th><th class="num">Tokens</th><th>Joined</th><th>Last active</th></tr></thead>
+        <tbody>
+          {% for u in stats.per_user %}
+          <tr>
+            <td>{{ u.email }}</td>
+            <td>{% if u.is_admin %}<span class="ok">admin</span>{% else %}user{% endif %}</td>
+            <td class="num">{{ u.n }}</td>
+            <td class="num">{{ "{:,}".format(u.toks) }}</td>
+            <td class="muted">{{ u.created_at[:10] }}</td>
+            <td class="muted">{{ (u.last[:16]|replace('T',' ')) if u.last else '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Recent queries (all users)</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>When (UTC)</th><th>User</th><th>Question</th><th class="num">Tokens</th><th>Status</th></tr></thead>
+        <tbody>
+          {% for q in stats.recent %}
+          <tr>
+            <td class="muted mono">{{ q.created_at[:16]|replace('T',' ') }}</td>
+            <td class="muted">{{ q.email }}</td>
+            <td class="trunc" title="{{ q.question }}">{{ q.question }}</td>
+            <td class="num">{{ "{:,}".format(q.tokens or 0) }}</td>
+            <td>{% if q.ok %}<span class="ok">ok</span>{% else %}<span class="fail">failed</span>{% endif %}</td>
+          </tr>
+          {% endfor %}
+          {% if not stats.recent %}<tr><td colspan="5" class="muted">No queries yet.</td></tr>{% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endblock %}

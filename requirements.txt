@@ -2,27 +2,30 @@
 # torch + transformers are pulled in by sentence-transformers; the Dockerfile
 # installs the CPU-only torch wheel to keep the image small.
 
-# --- PDF parsing (Stage 2) ---
+# --- PDF parsing ---
 pymupdf==1.28.0                 # layout-aware PDF parsing, no Java dependency
 
-# --- Embeddings + reranker (Stage 8, Day 3) ---
+# --- Embeddings + reranker ---
 sentence-transformers==5.6.1   # BGE-small embeddings + bge-reranker cross-encoder
 
-# --- Vector store (Stage 9) ---
+# --- Vector store ---
 chromadb==1.5.9                # persistent local vector DB, no server, no Docker
 
-# --- Keyword search (Stage 9) ---
+# --- Keyword search ---
 rank-bm25==0.2.2               # BM25 over the same chunks
 
-# --- LLM (Stage 5, agents) ---
+# --- LLM (agents) ---
 groq==1.6.0                    # free-tier LLM API (gpt-oss-120b); OpenAI-compatible tool calling
 
-# --- Interface (Day 8) ---
-flask==3.1.3                   # web UI: query box, answer, agent trace
+# --- Interface ---
+flask==3.1.3                   # web app: auth, dashboards, query, answer, trace
+flask-login==0.6.3             # session-based user authentication
+flask-limiter==4.1.1           # per-route rate limiting (abuse protection)
+bleach==6.4.0                  # sanitize rendered HTML (XSS defense)
 markdown==3.10.3               # render the agent's markdown answer to HTML
 gunicorn==23.0.0               # production WSGI server (Linux/container only)
 
 # --- Infra / utilities ---
 python-dotenv==1.2.2           # load secrets from .env
-requests==2.34.2               # arXiv / PubMed Central HTTP API (Stage 0)
+requests==2.34.2               # arXiv / PubMed Central HTTP API
 tqdm==4.70.0                   # progress bars for long loops

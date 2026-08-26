@@ -1,4 +1,4 @@
-"""Stage 3: structure recovery -> data/clean/{paper_id}.json.
+"""Structure recovery -> data/clean/{paper_id}.json.
 
 Detect headings (font size vs body median + bold + section-name regex), assign
 every block to its section, truncate after References, tag tables by section.

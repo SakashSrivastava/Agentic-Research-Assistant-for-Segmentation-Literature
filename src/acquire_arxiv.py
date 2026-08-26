@@ -1,4 +1,4 @@
-"""Stage 0 (arXiv): download papers as data/raw/{paper_id}.pdf + {paper_id}.meta.json.
+"""arXiv acquisition: download papers as data/raw/{paper_id}.pdf + {paper_id}.meta.json.
 
 Metadata comes from the API (ground truth), never parsed from the PDF.
 

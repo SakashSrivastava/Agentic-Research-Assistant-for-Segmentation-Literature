@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Log in{% endblock %}
+{% block wrapclass %}narrow{% endblock %}
+
+{% block content %}
+  <header>
+    <p class="eyebrow">Welcome back</p>
+    <h1>Log in</h1>
+    <p class="sub">Access your searches and history.</p>
+  </header>
+
+  <div class="card">
+    <form method="post">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <label for="email">Email</label>
+      <input type="email" id="email" name="email" autocomplete="email" required autofocus>
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" autocomplete="current-password" required>
+      <div style="margin-top:18px;"><button type="submit">Log in</button></div>
+    </form>
+    <p class="sub" style="margin:14px 0 0;"><a href="{{ url_for('forgot') }}">Forgot your password?</a></p>
+  </div>
+  <p class="sub" style="margin-top:16px;">New here? <a href="{{ url_for('signup') }}">Create an account</a>.</p>
+{% endblock %}

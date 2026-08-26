@@ -1,0 +1,7 @@
+# Part B only: the LangGraph re-implementation and the hand-written-vs-framework
+# comparison (src/agent_langgraph.py, src/compare_agents.py). NOT needed to run the
+# app or the pipeline, so it is kept out of requirements.txt to keep the deployed
+# image lean. Install alongside the main requirements:
+#   pip install -r requirements.txt -r requirements-partb.txt
+langgraph==1.2.11
+langchain-core==1.6.0

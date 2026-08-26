@@ -1,4 +1,4 @@
-"""Day 7: end-to-end answer-quality eval - baseline RAG vs the hand-written agent.
+"""End-to-end answer-quality eval: baseline RAG vs the hand-written agent.
 
 For each question we produce an answer two ways:
   - baseline RAG : retrieve top-k chunks, stuff them into one LLM call
@@ -113,7 +113,7 @@ def run(limit: int | None = None, per_hop: int | None = None) -> None:
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description="Day 7 end-to-end eval (baseline RAG vs agent).")
+    ap = argparse.ArgumentParser(description="End-to-end eval (baseline RAG vs agent).")
     ap.add_argument("--limit", type=int, default=None, help="first N questions")
     ap.add_argument("--per-hop", type=int, default=None, help="N single + N multi (balanced)")
     args = ap.parse_args()

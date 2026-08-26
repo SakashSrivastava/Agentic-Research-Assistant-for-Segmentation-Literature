@@ -1,4 +1,4 @@
-"""Stage 6: section-aware chunking -> data/chunks/{paper_id}.json.
+"""Section-aware chunking -> data/chunks/{paper_id}.json.
 
 800-token chunks with 150 overlap, measured with the embedding model's tokenizer.
 Chunks never span sections; tables are kept whole; text chunks under 100 tokens
@@ -142,11 +142,11 @@ def run(limit: int | None = None, force: bool = False) -> None:
         print(f"  chunks/paper   : min {counts[0]}, median {counts[len(counts)//2]}, "
               f"max {counts[-1]}, mean {sum(counts)/len(counts):.1f}")
         bad = [c for c in counts if not (5 <= c <= 500)]
-        print(f"  outside [5,500]: {len(bad)}  (Stage 10 will flag these)")
+        print(f"  outside [5,500]: {len(bad)}  (validation will flag these)")
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description="Stage 6 section-aware chunking.")
+    ap = argparse.ArgumentParser(description="Section-aware chunking.")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--force", action="store_true")
     args = ap.parse_args()

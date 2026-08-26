@@ -1,4 +1,4 @@
-"""Day 3 retrieval evaluation.
+"""Retrieval evaluation.
 
 Runs each retrieval method against evals/retrieval_questions.jsonl and reports
 recall@5, hit@5, MRR, split by single-hop vs multi-hop. Shows the effect of each

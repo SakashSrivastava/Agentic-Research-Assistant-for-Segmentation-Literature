@@ -23,7 +23,7 @@ DEFAULT_MODEL = "openai/gpt-oss-120b"
 _client: Groq | None = None
 
 
-def _get() -> Groq:
+def _default_client() -> Groq:
     global _client
     if _client is None:
         if not config.GROQ_API_KEY or "PASTE" in config.GROQ_API_KEY:
@@ -34,11 +34,19 @@ def _get() -> Groq:
     return _client
 
 
-def _create(**params):
+def _client_for(api_key: str | None) -> Groq:
+    """A user-supplied key (BYOK) gets an ephemeral client that is never cached or
+    stored; otherwise use the shared default client."""
+    if api_key:
+        return Groq(api_key=api_key, max_retries=0, timeout=90.0)
+    return _default_client()
+
+
+def _create(client: Groq, **params):
     """Call Groq, waiting out per-minute (TPM) rate limits but not the daily (TPD) one."""
     for attempt in range(6):
         try:
-            return _get().chat.completions.create(**params)
+            return client.chat.completions.create(**params)
         except RateLimitError as e:
             msg = str(e)
             if "per day" in msg or "TPD" in msg:
@@ -49,15 +57,16 @@ def _create(**params):
             time.sleep(min((float(wait.group(1)) + 1) if wait else 12.0, 25.0))
 
 
-def chat(system: str, user: str, *, model: str = DEFAULT_MODEL,
+def chat(system: str, user: str, *, model: str = DEFAULT_MODEL, api_key: str | None = None,
          max_tokens: int = 512, temperature: float = 0.0, json_mode: bool = False):
-    """One chat turn. Returns (text, usage). json_mode forces a valid JSON object."""
+    """One chat turn. Returns (text, usage). json_mode forces a valid JSON object.
+    api_key, if given, uses that key instead of the shared one (BYOK)."""
     params = {"model": model, "max_tokens": max_tokens, "temperature": temperature,
               "messages": [{"role": "system", "content": system},
                            {"role": "user", "content": user}]}
     if json_mode:
         params["response_format"] = {"type": "json_object"}
-    resp = _create(**params)
+    resp = _create(_client_for(api_key), **params)
     return resp.choices[0].message.content, resp.usage
 
 
@@ -68,11 +77,12 @@ def chat_json(system: str, user: str, **kw):
 
 
 def chat_tools(messages: list, tools: list, *, model: str = DEFAULT_MODEL,
-               max_tokens: int = 1500, temperature: float = 0.0, tool_choice: str = "auto"):
+               api_key: str | None = None, max_tokens: int = 1500,
+               temperature: float = 0.0, tool_choice: str = "auto"):
     """One tool-calling turn. Returns (message, usage). The message may carry
     .content (final text) and/or .tool_calls (requests for us to run tools).
-    tool_choice='none' forces a text answer (used to finalize). This is the raw
-    API surface the hand-written agent loop drives."""
-    resp = _create(model=model, messages=messages, tools=tools, tool_choice=tool_choice,
-                   max_tokens=max_tokens, temperature=temperature)
+    tool_choice='none' forces a text answer (used to finalize). api_key, if given,
+    uses that key instead of the shared one (BYOK)."""
+    resp = _create(_client_for(api_key), model=model, messages=messages, tools=tools,
+                   tool_choice=tool_choice, max_tokens=max_tokens, temperature=temperature)
     return resp.choices[0].message, resp.usage

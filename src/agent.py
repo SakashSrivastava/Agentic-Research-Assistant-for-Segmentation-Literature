@@ -30,11 +30,14 @@ SYSTEM = (
     "-- use these for any numeric result. `search_corpus` finds relevant passages; "
     "`fetch_paper_section` reads a paper's full section.\n"
     "3. REFLECT: before answering, check the evidence is sufficient; if not, gather more.\n\n"
-    "Prefer query_metrics / compare_across_papers for numeric results; use search_corpus "
-    "only when the metrics table lacks what you need. Once the metric rows answer the "
-    "question, STOP gathering and write the answer -- do not keep searching. "
-    "Cite the paper_id for every claim. Never invent numbers -- if the tools do not return "
-    "a value, say it is not available. Give a concise, structured final answer."
+    "Prefer query_metrics / compare_across_papers for numeric results. For conceptual "
+    "or 'which methods / approaches / loss functions' questions (no specific metric), use "
+    "search_corpus once or twice, then SYNTHESIZE a cited answer from the passages it "
+    "returned. Do NOT repeat near-identical searches: if the passages are relevant, answer "
+    "now instead of searching again with reworded queries. Two or three tool calls are "
+    "usually enough; stop gathering and write the answer. Cite the paper_id for every claim. "
+    "Never invent numbers -- if the tools do not return a value, say it is not available. "
+    "Give a concise, structured final answer."
 )
 
 
@@ -89,11 +92,14 @@ def _compare_across_papers(metric_name, anatomical_target=None):
 
 
 def _search_corpus(query, k=5):
+    # Cap fan-out and snippet size to keep the running context small enough that
+    # the final answer call still fits under the per-minute token limit.
+    k = min(k or 5, 8)
     passages = retrieve._passages()
     out = []
     for cid, _ in retrieve.search(query, k=k, method="vector"):
         out.append({"chunk_id": cid, "paper_id": cid.split("::")[0],
-                    "text": passages.get(cid, "")[:400]})
+                    "text": passages.get(cid, "")[:300]})
     return out
 
 
@@ -160,7 +166,7 @@ def _msg_to_dict(msg):
     return d
 
 
-def _finalize(messages: list) -> tuple:
+def _finalize(messages: list, api_key: str | None = None) -> tuple:
     """Force a tool-free answer from the evidence already gathered. Used when a
     guardrail trips (max iters / budget) so the run still produces a real answer
     instead of a "stopped" placeholder. Returns (text_or_None, in, out)."""
@@ -169,20 +175,20 @@ def _finalize(messages: list) -> tuple:
         "concise final answer now, citing the paper_id for each claim. If the evidence is "
         "insufficient for part of the question, say so explicitly."}]
     try:
-        msg, usage = llm.chat_tools(msgs, TOOLS, tool_choice="none")
+        msg, usage = llm.chat_tools(msgs, TOOLS, tool_choice="none", api_key=api_key)
         return msg.content, usage.prompt_tokens, usage.completion_tokens
     except Exception:  # noqa: BLE001 - e.g. daily budget also gone
         return None, 0, 0
 
 
-def answer(question: str, verbose: bool = True) -> dict:
+def answer(question: str, verbose: bool = True, api_key: str | None = None) -> dict:
     messages = [{"role": "system", "content": SYSTEM},
                 {"role": "user", "content": question}]
     trace, tokens_in, tokens_out, bad_json = [], 0, 0, 0
 
     for step in range(1, MAX_ITERS + 1):
         try:
-            msg, usage = llm.chat_tools(messages, TOOLS)
+            msg, usage = llm.chat_tools(messages, TOOLS, api_key=api_key)
         except Exception as ex:  # noqa: BLE001
             s = str(ex)
             # The model sometimes emits invalid JSON for a tool call (Groq 400s the
@@ -194,7 +200,7 @@ def answer(question: str, verbose: bool = True) -> dict:
                     "JSON, or give your final answer if you already have enough evidence."})
                 continue
             # Otherwise (daily budget gone, or repeated bad JSON): salvage an answer.
-            final, ti, to = _finalize(messages)
+            final, ti, to = _finalize(messages, api_key)
             return {"answer": final or f"(stopped: LLM unavailable - {s[:120]})",
                     "trace": trace, "steps": step, "tokens": (tokens_in + ti, tokens_out + to)}
         tokens_in += usage.prompt_tokens
@@ -223,7 +229,7 @@ def answer(question: str, verbose: bool = True) -> dict:
             break
 
     # Guardrail tripped (max iters or budget): force a final answer from evidence.
-    final, ti, to = _finalize(messages)
+    final, ti, to = _finalize(messages, api_key)
     return {"answer": final or "(stopped: could not produce a final answer)",
             "trace": trace, "steps": min(step, MAX_ITERS),
             "tokens": (tokens_in + ti, tokens_out + to)}

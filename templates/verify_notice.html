@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Verify your email{% endblock %}
+{% block wrapclass %}narrow{% endblock %}
+{% block content %}
+  <header>
+    <p class="eyebrow">One more step</p>
+    <h1>Verify your email</h1>
+    <p class="sub">
+      {% if unverified %}Your email address isn't verified yet.{% else %}We've sent a verification link to <strong>{{ email }}</strong>.{% endif %}
+      Open the link to activate your account. Links expire after 24 hours.
+    </p>
+  </header>
+  <div class="card">
+    <p class="sub" style="margin:0 0 4px;">Didn't get it? Request a new link.</p>
+    <form method="post" action="{{ url_for('resend_verification') }}">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <input type="hidden" name="email" value="{{ email }}">
+      <div style="margin-top:14px;"><button type="submit">Resend verification link</button></div>
+    </form>
+  </div>
+  <p class="sub" style="margin-top:16px;"><a href="{{ url_for('login') }}">Back to log in</a></p>
+{% endblock %}

@@ -1,61 +1,112 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Segmentation Literature Assistant</title>
-  <style>
-    :root { --bg:#f6f7f9; --card:#fff; --ink:#1c2530; --muted:#66727f;
-            --accent:#2f6f6a; --border:#e3e7ec; --code:#f0f2f5; }
-    * { box-sizing:border-box; }
-    body { margin:0; background:var(--bg); color:var(--ink);
-           font:16px/1.55 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
-    .wrap { max-width:860px; margin:0 auto; padding:32px 20px 64px; }
-    header h1 { margin:0 0 4px; font-size:1.5rem; }
-    header p { margin:0 0 24px; color:var(--muted); }
-    form { display:flex; gap:10px; }
-    textarea { flex:1; padding:12px 14px; border:1px solid var(--border); border-radius:10px;
-               font:inherit; resize:vertical; min-height:52px; background:var(--card); }
-    button { padding:0 22px; border:0; border-radius:10px; background:var(--accent); color:#fff;
-             font-weight:600; cursor:pointer; }
-    button:hover { background:#255a56; }
-    .examples { margin:14px 0 0; font-size:.86rem; color:var(--muted); }
-    .examples a { display:block; margin:5px 0; color:var(--accent); text-decoration:none; cursor:pointer; }
+{% extends "base.html" %}
+
+{% block styles %}
+    .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; margin:24px 0 14px; }
+    .stat { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px 18px; box-shadow:var(--shadow); }
+    .stat .n { font-family:"IBM Plex Mono",monospace; font-size:1.55rem; font-weight:500; letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
+    .stat .l { font-size:.78rem; color:var(--muted); margin-top:2px; }
+    .evalrow { display:flex; flex-wrap:wrap; gap:10px 22px; align-items:baseline; padding:12px 18px; margin-bottom:28px;
+               border-radius:12px; background:var(--accent-soft); border:1px solid var(--border); font-size:.85rem; }
+    .evalrow .tag { font-weight:600; color:var(--accent-ink); }
+    .evalrow b { font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums; }
+    .evalrow .m { color:var(--muted); }
+    .ask { display:flex; gap:10px; }
+    .ask button { padding:0 26px; }
+    .examples { margin:14px 2px 0; font-size:.85rem; color:var(--muted); }
+    .examples span { display:block; margin-bottom:6px; }
+    .examples a { display:block; margin:5px 0; cursor:pointer; text-decoration:none; }
     .examples a:hover { text-decoration:underline; }
-    .card { background:var(--card); border:1px solid var(--border); border-radius:12px;
-            padding:20px 24px; margin-top:26px; }
-    .card h2 { margin:0 0 6px; font-size:.8rem; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); }
-    .answer table { border-collapse:collapse; width:100%; margin:12px 0; font-size:.92rem; }
-    .answer th, .answer td { border:1px solid var(--border); padding:6px 10px; text-align:left; }
-    .answer th { background:var(--code); }
-    .answer code { background:var(--code); padding:1px 5px; border-radius:4px; }
-    .meta { color:var(--muted); font-size:.82rem; margin-top:10px; }
+    .loading { display:flex; align-items:center; gap:12px; margin-top:18px; padding:14px 18px; border:1px solid var(--border);
+               border-radius:12px; background:var(--card); color:var(--muted); font-size:.88rem; box-shadow:var(--shadow); }
+    .spinner { flex:none; width:18px; height:18px; border-radius:50%; border:2.5px solid var(--border);
+               border-top-color:var(--accent); animation:spin .8s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .spinner { animation:none; } }
+    .answer table { margin:12px 0; }
+    .answer th { background:var(--code); text-transform:none; letter-spacing:0; color:var(--ink); }
+    .answer th, .answer td { border:1px solid var(--border); }
+    .answer code { background:var(--code); padding:1px 6px; border-radius:5px; font-family:"IBM Plex Mono",monospace; font-size:.88em; }
+    .answer h1,.answer h2,.answer h3 { text-transform:none; letter-spacing:0; color:var(--ink); font-size:1.05rem; margin:16px 0 6px; }
+    .meta { color:var(--muted); font-size:.82rem; margin-top:12px; font-family:"IBM Plex Mono",monospace; }
     details { margin-top:18px; }
-    summary { cursor:pointer; font-weight:600; color:var(--accent); }
-    .step { border-left:3px solid var(--border); padding:6px 0 6px 12px; margin:10px 0; font-size:.85rem; }
-    .step .tool { font-family:ui-monospace,Menlo,Consolas,monospace; color:var(--accent); }
-    .step .args { color:var(--muted); }
-    .step .res { color:#3a4653; white-space:pre-wrap; word-break:break-word; }
-    .error { background:#fff4f2; border:1px solid #f2c9c0; color:#8a2b1c; }
-  </style>
-</head>
-<body>
-  <div class="wrap">
+    summary { cursor:pointer; font-weight:600; color:var(--accent); font-size:.9rem; }
+    .step { border-left:2px solid var(--accent); padding:6px 0 6px 14px; margin:12px 0; font-size:.83rem; }
+    .step .tool { font-family:"IBM Plex Mono",monospace; color:var(--accent-ink); font-weight:500; }
+    .step .args { color:var(--muted); font-family:"IBM Plex Mono",monospace; font-size:.8rem; }
+    .step .res { color:var(--muted); white-space:pre-wrap; word-break:break-word; margin-top:3px; overflow-x:auto; }
+    .card.error { background:color-mix(in srgb,#d9503c 8%,var(--card)); border-color:#e0a99f; }
+    .card.error h2, .card.error div { color:var(--bad); }
+    .recent { margin-top:26px; }
+    .recent h2 { font-size:.74rem; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin:0 0 8px; }
+    .recent ul { list-style:none; margin:0; padding:0; }
+    .recent li { padding:8px 0; border-bottom:1px solid var(--border); font-size:.9rem; display:flex; gap:12px; }
+    .recent li a { text-decoration:none; flex:1; }
+    .recent li a:hover { text-decoration:underline; }
+    .recent .when { color:var(--muted); font-size:.78rem; white-space:nowrap; }
+    .keybadge { margin:12px 2px 0; font-size:.83rem; color:var(--muted); }
+    .keybadge a { text-decoration:none; }
+    .keybadge a:hover { text-decoration:underline; }
+    .keybadge .dot { display:inline-block; width:8px; height:8px; border-radius:50%;
+                     background:var(--good); margin-right:6px; vertical-align:middle; }
+    .cachetag { font-size:.64rem; font-weight:600; letter-spacing:.06em; text-transform:uppercase;
+                color:var(--accent-ink); background:var(--accent-soft); padding:2px 8px;
+                border-radius:20px; vertical-align:middle; }
+    .cachenote { font-size:.83rem; color:var(--muted); background:var(--accent-soft);
+                 border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:12px; }
+    .cachenote a { font-weight:500; }
+    .feedback { display:flex; align-items:center; gap:8px; margin-top:14px; padding-top:12px;
+                border-top:1px solid var(--border); font-size:.84rem; color:var(--muted); flex-wrap:wrap; }
+    .feedback .fb { padding:5px 14px; font-size:.82rem; font-weight:500; background:transparent;
+                    color:var(--ink); border:1px solid var(--border); border-radius:8px; }
+    .feedback .fb:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
+    .fb-status { color:var(--good); }
+{% endblock %}
+
+{% block content %}
     <header>
-      <h1>Segmentation Literature Assistant</h1>
-      <p>Ask about reported results across medical image segmentation papers. The agent
-         plans, queries a verified metrics table and the corpus, and answers with citations.</p>
+      <p class="eyebrow">Agentic Research Assistant</p>
+      <h1>Search the segmentation literature</h1>
+      <p class="sub">Ask about reported results across the corpus. The agent plans, queries a
+         verified metrics table and the papers, and answers with citations you can open.</p>
     </header>
 
-    <form method="post">
+    {% if stats %}
+    <section class="stats" aria-label="Corpus at a glance">
+      <div class="stat"><div class="n">{{ "{:,}".format(stats.papers) }}</div><div class="l">Papers indexed</div></div>
+      <div class="stat"><div class="n">{{ "{:,}".format(stats.chunks) }}</div><div class="l">Chunks embedded</div></div>
+      <div class="stat"><div class="n">{{ "{:,}".format(stats.metric_rows) }}</div><div class="l">Verified metric rows</div></div>
+      <div class="stat"><div class="n">{{ "{:,}".format(stats.architectures) }}</div><div class="l">Architectures compared</div></div>
+      <div class="stat"><div class="n">{{ "{:,}".format(stats.datasets) }}</div><div class="l">Datasets covered</div></div>
+      <div class="stat"><div class="n">{{ stats.anatomies }}</div><div class="l">Anatomical targets</div></div>
+    </section>
+    <div class="evalrow">
+      <span class="tag">Measured retrieval</span>
+      <span><b>{{ retrieval.recall5 }}</b> <span class="m">recall@5</span></span>
+      <span><b>{{ retrieval.paper_hit5 }}</b> <span class="m">paper-hit@5</span></span>
+      <span><b>{{ retrieval.table_fidelity }}%</b> <span class="m">table numeric fidelity</span></span>
+    </div>
+    {% endif %}
+
+    <form method="post" id="askform" class="ask">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <input type="hidden" name="user_api_key" id="user_api_key">
+      <input type="hidden" name="nocache" id="nocache">
       <textarea name="question" placeholder="e.g. Which architectures report the best Dice on head and neck segmentation, and on how many cases?">{{ question }}</textarea>
-      <button type="submit">Ask</button>
+      <button type="submit" id="askbtn">Ask</button>
     </form>
+
+    <div class="keybadge" id="keybadge"></div>
+
+    <div id="loading" class="loading" hidden>
+      <span class="spinner" aria-hidden="true"></span>
+      Running the agent. It plans, calls tools, and checks evidence, and the free tier is
+      rate-limited, so a full answer can take up to a minute or two. Please keep this tab open.
+    </div>
 
     {% if not result %}
     <div class="examples">
-      Try:
-      {% for ex in examples %}<a onclick="document.querySelector('textarea').value=this.textContent.trim();">{{ ex }}</a>{% endfor %}
+      <span>Try one of these:</span>
+      {% for ex in examples %}<a onclick="document.querySelector('textarea').value=this.textContent.trim();window.scrollTo({top:0,behavior:'smooth'});">{{ ex }}</a>{% endfor %}
     </div>
     {% endif %}
 
@@ -68,10 +119,27 @@
         </div>
       {% else %}
         <div class="card">
-          <h2>Answer</h2>
+          <h2>Answer{% if result.from_cache %} <span class="cachetag">instant &middot; cached</span>{% endif %}</h2>
+          {% if result.from_cache %}
+          <div class="cachenote">Reused a previous answer to a near-identical question
+            (&ldquo;{{ result.matched }}&rdquo;, similarity {{ result.similarity }}) for 0 tokens.
+            <a href="#" onclick="runFresh();return false;">Run a fresh answer</a> if this isn't what you meant.</div>
+          {% endif %}
           <div class="answer">{{ result.answer | safe }}</div>
-          <div class="meta">{{ result.steps }} agent steps &middot; {{ result.tokens }} tokens</div>
+          <div class="meta">
+            {% if result.from_cache %}cached &middot; 0 tokens
+            {% else %}{{ result.steps }} agent steps &middot; {{ "{:,}".format(result.tokens) }} tokens{% endif %}
+          </div>
+          {% if result.cache_id %}
+          <div class="feedback">
+            <span>Was this answer helpful?</span>
+            <button type="button" class="fb" onclick="sendFeedback(this,{{ result.cache_id }},'up')">Yes</button>
+            <button type="button" class="fb" onclick="sendFeedback(this,{{ result.cache_id }},'down')">No</button>
+            <span id="fb-status" class="fb-status"></span>
+          </div>
+          {% endif %}
         </div>
+        {% if result.trace %}
         <details>
           <summary>Agent trace ({{ result.trace|length }} tool calls)</summary>
           {% for s in result.trace %}
@@ -81,8 +149,82 @@
           </div>
           {% endfor %}
         </details>
+        {% endif %}
       {% endif %}
     {% endif %}
-  </div>
-</body>
-</html>
+
+    {% if recent %}
+    <section class="recent">
+      <h2>Your recent searches</h2>
+      <ul>
+        {% for r in recent %}
+        <li>
+          <a onclick="document.querySelector('textarea').value='{{ r.question|replace("'", "\\'")|replace('"','&quot;') }}';window.scrollTo({top:0,behavior:'smooth'});">{{ r.question }}</a>
+          <span class="when">{{ r.created_at[:16]|replace('T',' ') }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      <p style="margin-top:10px;font-size:.85rem;"><a href="{{ url_for('history') }}">See full history →</a></p>
+    </section>
+    {% endif %}
+
+    <footer>
+      Vector + keyword retrieval over layout-parsed papers, a verified metric-extraction pass,
+      and a hand-written planning agent. Numbers above are read live from the corpus database.
+    </footer>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    (function () {
+      var form = document.getElementById("askform");
+      var btn = document.getElementById("askbtn");
+      var loading = document.getElementById("loading");
+      form.addEventListener("submit", function (e) {
+        var ta = document.querySelector("textarea");
+        if (!ta.value.trim()) { e.preventDefault(); ta.focus(); return; }
+        // Attach the user's own key (if any) from localStorage for this request only.
+        document.getElementById("user_api_key").value = localStorage.getItem("groq_key") || "";
+        btn.disabled = true;
+        btn.textContent = "Thinking";
+        loading.hidden = false;
+        loading.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+
+      window.refreshKeyBadge = function () {
+        var el = document.getElementById("keybadge");
+        if (!el) return;
+        if (localStorage.getItem("groq_key")) {
+          el.innerHTML = '<span class="dot"></span>Using your own key — unlimited searches. ' +
+            '<a href="#" onclick="openSettings();return false;">Manage</a>';
+        } else {
+          el.innerHTML = '{{ free_left }} of {{ free_total }} free searches left today. ' +
+            '<a href="#" onclick="openSettings();return false;">Add your key</a> for unlimited.';
+        }
+      };
+      refreshKeyBadge();
+    })();
+
+    function runFresh() {
+      document.getElementById("nocache").value = "1";
+      document.getElementById("askform").requestSubmit();
+    }
+
+    function sendFeedback(btn, cacheId, vote) {
+      var fd = new FormData();
+      fd.append("_csrf", "{{ csrf_token }}");
+      fd.append("cache_id", cacheId);
+      fd.append("vote", vote);
+      fetch("/feedback", { method: "POST", body: fd })
+        .then(function (r) { return r.json(); })
+        .then(function () {
+          document.getElementById("fb-status").textContent =
+            vote === "up" ? "Thanks for the feedback." : "Thanks — we won't reuse this answer.";
+          btn.parentNode.querySelectorAll("button").forEach(function (b) { b.disabled = true; });
+        })
+        .catch(function () {
+          document.getElementById("fb-status").textContent = "Could not save feedback.";
+        });
+    }
+  </script>
+{% endblock %}

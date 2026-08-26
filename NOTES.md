@@ -1,11 +1,11 @@
 # NOTES.md — plain-language design log
 
-Twenty minutes at the end of each day. If I can't answer a question here in my
-own words, that component is not done. These are the interview questions.
+A running design log kept alongside the build. If I can't answer a question here
+in my own words, that component is not done. These are the interview questions.
 
 ---
 
-## Day 1 — Environment & foundation
+## Environment and foundation
 
 **Deviation from spec: Python 3.12 instead of 3.11.**
 The spec fixes Python 3.11, but 3.11 was not installed on my machine (only 3.10
@@ -20,7 +20,7 @@ project folder. It stops this project's exact package versions from colliding
 with my other projects (Orbit, SmogSense). Reproducibility: anyone can recreate
 my exact environment from requirements.txt.
 
-**Why is the raw layer immutable?** _(to answer end of Day 1-2)_
+**Why is the raw layer immutable?** _(answered in the checklist below)_
 
 **Why gitignore derived data (parsed/clean/chunks/index)?**
 Everything downstream of `data/raw` is reproducible by re-running the pipeline,
@@ -29,7 +29,7 @@ so committing it just bloats the repo and invites stale artifacts. The manifest
 
 ---
 
-## Day 2 — LLM provider: Groq instead of Claude
+## LLM provider: Groq instead of Claude
 
 **Deviation from spec: Groq (Llama 3.3 70B, free tier) instead of Claude.**
 The spec fixes the LLM as Claude via the anthropic SDK, but I don't have paid
@@ -44,7 +44,7 @@ provider." The hand-written-vs-LangGraph story (Part B) is unaffected.
 
 ---
 
-## Day 3 — Retrieval evaluation (the credibility day)
+## Retrieval evaluation (the credibility check)
 
 **Built:** 52 questions labelled with gold chunk IDs (41 single-hop pinpoint,
 11 comparative multi-hop), an eval harness (recall@5, MRR, paper-hit@5), and a
@@ -73,11 +73,11 @@ measured, found to backfire on table-heavy data, and explained.
 ~0.03 recall on the comparative questions ("which architectures work best for
 head-and-neck?") because the answer needs 3-4 tables from different papers and one
 query embedding can't gather them. Plain RAG cannot do it. The hand-written agent
-(Days 4-6) decomposes the question and retrieves per sub-question.
+(next section) decomposes the question and retrieves per sub-question.
 
 ---
 
-## Days 4-6 — the agent (metric extraction + hand-written loop)
+## The agent: metric extraction and the hand-written loop
 
 **Agent 2 (metric extraction, `extract.py`):** one LLM call per paper over its
 tables + results text pulls structured rows (architecture, dataset, anatomy,
@@ -97,7 +97,7 @@ every tool call. **Proven across tasks** (head-neck, pancreas), 2 steps each whe
 query_metrics matches.
 
 **Why the agent (not plain RAG):** single-query retrieval scored ~0.03 on the
-comparative multi-hop questions (Day 3). The agent decomposes the question and
+comparative multi-hop questions (see Retrieval evaluation). The agent decomposes the question and
 queries the metrics table per sub-question, which is what makes "which
 architecture is best across papers" answerable.
 
@@ -109,7 +109,7 @@ agent catches a TPD stop and returns a partial answer instead of crashing.
 Extraction and the agent share the daily budget, so the metrics table grows ~50
 papers/day; currently 132/275 papers, 829 verified rows across ~10 anatomies.
 
-## Day 7 — end-to-end eval (agent vs baseline RAG, LLM-judged)
+## End-to-end evaluation (agent vs baseline RAG, LLM-judged)
 
 **Built:** `eval_e2e.py` answers each question two ways -- baseline RAG (retrieve
 top-5, one stuffed LLM call) and the agent -- then an LLM judge scores each answer
@@ -150,7 +150,7 @@ After the fixes both failing questions produce real, cited answers.
 The agent is token-heavy (~15-25k tokens/question once it finalizes), so a full
 clean re-run of the headline table wants a fresh daily budget run on its own.
 
-## Day 9 — deployment (Docker + CI/CD), token-free
+## Deployment (Docker and CI/CD)
 
 Multi-stage `Dockerfile`: CPU-only torch + baked embedding model, no secrets and
 no `data/` in the image. `/health` endpoint for the load balancer.
@@ -161,6 +161,92 @@ client: `/health` 200, `/` renders); live AWS provisioning left manual to avoid
 idle billing. The workflow is `workflow_dispatch`-only for now: with no AWS
 secrets set, a `push`-triggered run red-X's on every commit, so it's manual until
 the instance exists (flip to a push trigger once the Secrets are in place).
+
+**Bug that only appeared in the container (great example of why you actually
+build and run the image).** Locally everything worked; in the container every
+`search_corpus` call failed with "attempt to write a readonly database". Cause:
+the corpus is mounted read-only, but ChromaDB opens its SQLite backend read-write
+and needs to write WAL/lock files even to *read*. Local dev never hit it because
+`data/` is writable there. Fix: a nested read-write bind mount over just the
+ChromaDB directory (`data/index/chroma`), so that one subpath is writable while
+app.db and the rest of the corpus stay read-only. Verified in-container: search
+returns hits, both volume mounts work, security headers present, `/health` 200,
+two gunicorn workers boot, and the baked model loads with no runtime download.
+
+## The web app: accounts, BYOK, caching
+
+**From single query box to multi-user app.** Auth is Flask-Login sessions +
+werkzeug password hashing. User data (accounts, history, cache) lives in a
+*separate* writable `users.db`, not the corpus `app.db` -- because the corpus is
+mounted read-only in the container and is regenerable, while user data is neither.
+
+**BYOK is the real scale answer.** The free tier is 200k tokens/day total, so one
+active user could exhaust it. Instead: 5 free searches/user/day on the shared key,
+then the user pastes their own free Groq key. The key lives in the browser
+(localStorage), is sent per request, used once, and never written to the DB or
+logs -- so each user runs on their own budget and the app scales for free. The key
+does transit the server in memory (the agent's tool loop runs server-side); "never
+touches the database" is the achievable and honest promise, not "never touches the
+server".
+
+**Semantic cache + feedback loop.** A new question is embedded (same BGE-small as
+retrieval) and matched against past answers; a close (cosine >= 0.93), not
+downvoted, not stale match is served instantly for 0 tokens. Thumbs up/down decides
+what stays reusable. Global across users, so popular questions are answered once.
+Guardrails against wrong reuse: high threshold, show the matched question + a "run
+fresh" button, TTL, and downvote exclusion.
+
+## Security hardening (senior-engineer pass)
+
+**Admin cannot be self-assigned.** Early version granted admin to whoever signed up
+with ADMIN_EMAIL -- but with no email verification, that's a pre-registration race.
+Fixed: signup always creates a regular user; admin is granted only by
+`manage_admin` from the server shell. No web path to admin at all.
+
+**Auth:** hashed passwords (never plaintext), sessions expire (12h idle, HttpOnly/
+SameSite/Secure cookies), email verification + password reset via signed *expiring*
+tokens (itsdangerous, 24h / 1h), and login rate limiting. Generic responses on
+signup/forgot to avoid user enumeration.
+
+**API + input:** CSRF token on every POST; Flask-Limiter on login/signup/AI/feedback
+(brute force + scraping); bleach whitelist-sanitizes rendered answers (the one place
+we emit `|safe` HTML from LLM output -- the obvious XSS hole); all SQL parameterized
+(removed the one f-string-in-SQL, even though its value was a hardcoded literal);
+open-redirect guard on `next`; request-size cap; question-length cap.
+
+**IDOR:** history is scoped to `current_user.id`; there is no endpoint that takes a
+user-owned resource by raw id, so there's no direct-object-reference surface. The
+cache is deliberately global (shared knowledge), not user-owned.
+
+**Deployment:** HTTPS redirect + HSTS + CSP + nosniff/frame-deny headers when
+HTTPS_ONLY is set (behind a TLS terminator; ProxyFix trusts X-Forwarded-Proto);
+secrets only in env; SQLite is a local file, never network-exposed; audit log for
+auth attempts, admin actions, errors, and rate-limit hits.
+
+**Honest gaps:** real email needs SMTP (dev mode shows the link); rate-limit storage
+is in-memory (per worker -- use redis for multi-worker); CSP still allows
+'unsafe-inline' because the UI uses inline handlers (nonces would tighten it).
+
+## Part B: the agent in LangGraph (hand-written vs framework)
+
+Re-implemented the exact same agent as a LangGraph `StateGraph`, holding model,
+tools, and system prompt constant so the only variable is orchestration.
+`agent_langgraph.py` has two nodes -- an `llm` node (one model turn) and a `tools`
+node (run the requested tools) -- with a conditional edge that loops back to `llm`
+while the model keeps asking for tools, and routes to END when it answers. It
+drives our own `src.llm` wrapper inside the nodes rather than `langchain-groq`,
+which also avoids a dependency conflict (langchain-groq pins groq<1, we use 1.6.0).
+
+**What the graph makes explicit** that the while-loop kept implicit: the state
+schema (messages, trace, token tallies), the transitions, and the stop condition
+are declared as data, and `recursion_limit` is the loop guard. That is genuinely
+nicer for branching, retries, checkpointing, and visualization as agents grow.
+
+**What was actually easier by hand:** finishing an answer when a guardrail trips.
+The hand-written loop just calls `_finalize()` on max-iters; in LangGraph the
+recursion limit raises, so forcing a final answer needs a dedicated node/edge. For
+this single linear loop, the framework is more machinery for the same behaviour.
+`compare_agents.py` runs both on the same questions to compare steps/tokens/latency.
 
 ## Questions to answer as we build (from spec §9)
 
@@ -256,11 +342,16 @@ aside rather than ingested as empty text. Two more parse but have no detectable
 section headings (unusual formatting) and are flagged for a repair pass. Text
 coverage vs source is 0.9997 mean.
 
-**Q. What does LangGraph do that you cannot do yourself? _(Part B, pending)_**
-To be answered after the LangGraph re-implementation. Expected answer: nothing I
-cannot do by hand, but it provides state management, retries, branching, and
-persistence as reusable primitives instead of hand-rolled loop code. The point of
-building the loop by hand first is to know exactly what the framework is doing.
+**Q. What does LangGraph do that you cannot do yourself?**
+Nothing I cannot do by hand for a single loop, but it turns the moving parts into
+reusable primitives: a declared state schema, nodes and conditional edges instead
+of a while-loop, plus checkpointing, retries, and graph visualization for free.
+The payoff grows with complexity (branching, parallel tool calls, human-in-the-loop,
+resumable runs). The catch: for this linear plan-act loop it is more machinery for
+the same behaviour, and one thing was easier by hand -- forcing a final answer when
+a guardrail trips (a plain function call vs a dedicated node/edge around
+LangGraph's recursion limit). Building the loop by hand first is what lets me say
+exactly what the framework is doing under the hood.
 
 **Q. What still fails?**
 Single-hop pinpoint answers where the value is in a table but the agent fetches

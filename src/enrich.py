@@ -1,4 +1,4 @@
-"""Stage 5: metadata enrichment via one cheap LLM call per paper.
+"""Metadata enrichment via one cheap LLM call per paper.
 
 From each paper's title + abstract, label anatomical_target and imaging_modality
 (controlled vocab), stored on the manifest for filtered retrieval. Uses the
@@ -77,7 +77,7 @@ def run(limit: int | None = None, force: bool = False) -> None:
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description="Stage 5 metadata enrichment.")
+    ap = argparse.ArgumentParser(description="Metadata enrichment.")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--force", action="store_true")
     args = ap.parse_args()

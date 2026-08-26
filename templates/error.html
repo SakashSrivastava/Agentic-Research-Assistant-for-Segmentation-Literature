@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Error {{ code }}{% endblock %}
+{% block wrapclass %}narrow{% endblock %}
+{% block content %}
+  <header>
+    <p class="eyebrow">Error {{ code }}</p>
+    <h1>{{ msg }}</h1>
+    <p class="sub"><a href="{{ url_for('index') }}">Return to the app</a></p>
+  </header>
+{% endblock %}

@@ -1,4 +1,4 @@
-"""Stage 1: build data/manifest.jsonl with content hashes + duplicate flags.
+"""Build data/manifest.jsonl with content hashes + duplicate flags.
 
 Deterministic, no LLM. Rebuilds from data/raw each run.
 

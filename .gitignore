@@ -22,6 +22,9 @@ data/chunks/*
 data/index/*
 data/app.db
 data/manifest.jsonl
+# User data (accounts + history): read-write, private, NEVER committed.
+data/users.db
+data/users.db-*
 !data/**/.gitkeep
 
 # --- OS / editor / tooling ---

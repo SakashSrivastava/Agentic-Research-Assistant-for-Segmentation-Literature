@@ -1,4 +1,4 @@
-"""Stage 9: build the three retrieval stores from chunks + cached vectors.
+"""Build the three retrieval stores from chunks + cached vectors.
 
 - ChromaDB   : vectors + filter metadata (paper_id, section, year, anatomy, modality)
 - rank_bm25  : keyword index over the same chunk texts, persisted (pickle)

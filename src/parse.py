@@ -1,4 +1,4 @@
-"""Stage 2: layout-aware parsing -> data/parsed/{paper_id}.json.
+"""Layout-aware parsing -> data/parsed/{paper_id}.json.
 
 Per page we keep text blocks (with font size, bold, bbox) in reconstructed
 reading order, plus tables extracted separately as structured rows. Scanned
@@ -30,7 +30,7 @@ def _is_bold(span) -> bool:
 
 def _block_text_and_style(block) -> tuple[str, float, bool]:
     """Flatten a block's spans into text, plus its median font size and whether
-    it is majority-bold (both used by Stage 3 to detect headings)."""
+    it is majority-bold (both used by structure recovery to detect headings)."""
     lines, sizes, bold, n = [], [], 0, 0
     for line in block["lines"]:
         parts = []

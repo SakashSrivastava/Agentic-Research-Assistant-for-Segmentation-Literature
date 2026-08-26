@@ -1,0 +1,28 @@
+# Local run:  docker compose up --build   then open http://localhost:5000
+# Secrets (GROQ_API_KEY, FLASK_SECRET_KEY, ADMIN_EMAIL) are read from .env.
+services:
+  web:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      GROQ_API_KEY: ${GROQ_API_KEY:?set GROQ_API_KEY in .env}
+      FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:?set FLASK_SECRET_KEY in .env}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      USER_DB_PATH: /app/userdata/users.db
+      REQUIRE_EMAIL_VERIFICATION: ${REQUIRE_EMAIL_VERIFICATION:-true}
+      HTTPS_ONLY: ${HTTPS_ONLY:-false}
+      BASE_URL: ${BASE_URL:-http://localhost:5000}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+    volumes:
+      - ./data:/app/data:ro                          # corpus (app.db, clean/, chunks/): read-only
+      - ./data/index/chroma:/app/data/index/chroma   # ChromaDB needs write access (SQLite locking)
+      - userdata:/app/userdata                       # accounts + history: persists across restarts
+    restart: unless-stopped
+
+volumes:
+  userdata:

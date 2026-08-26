@@ -1,9 +1,9 @@
-"""Stage 7 + 8: contextual enrichment + embedding.
+"""Contextual enrichment + embedding.
 
-Stage 7: before embedding, prepend the paper title and section name to each
+Before embedding, prepend the paper title and section name to each
 chunk. The stored display text is unchanged; this only grounds the vector, since
 a bare results chunk is otherwise context-free.
-Stage 8: embed with BGE-small in batches of 64, L2-normalized. Vectors are cached
+Embed with BGE-small in batches of 64, L2-normalized. Vectors are cached
 by content hash, so a re-run after a chunking tweak only embeds what changed.
 The model name + dimension are recorded so two embedding models can never mix.
 
@@ -36,7 +36,7 @@ def model() -> SentenceTransformer:
 
 
 def embed_input(title: str, section: str, text: str) -> str:
-    """Stage 7: contextual prefix, prepended for embedding only."""
+    """Contextual prefix, prepended for embedding only."""
     return f"{title}\nSection: {section}\n{text}"
 
 
@@ -101,7 +101,7 @@ def run(limit: int | None = None, force: bool = False) -> None:
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description="Stage 7+8 contextual embedding.")
+    ap = argparse.ArgumentParser(description="Contextual embedding.")
     ap.add_argument("--limit", type=int, default=None, help="embed only first N chunks (smoke)")
     ap.add_argument("--force", action="store_true", help="ignore cache, re-embed all")
     args = ap.parse_args()

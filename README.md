@@ -22,18 +22,21 @@ and getting it to work is the core of the project.
 
 ## Status
 
-The end-to-end system works. The full ingestion pipeline (acquire through index)
-is done and validated, the corpus is queryable through a vector store and a
-keyword store with a labelled retrieval eval, the reported results are extracted
-into a verified metrics table, and the hand-written multi-step agent answers
-questions over all of it with citations, served both from a CLI and a Flask UI.
-It is containerised with a GitHub Actions CI/CD pipeline. The one remaining piece
-is the LangGraph re-implementation and head-to-head comparison (see the roadmap).
+The end-to-end system works, as a multi-user web application. The full ingestion
+pipeline (acquire through index) is done and validated; the corpus is queryable
+through a vector store and a keyword store with a labelled retrieval eval; the
+reported results are extracted into a verified metrics table; and a hand-written
+multi-step agent answers questions over all of it with citations, from a CLI and
+a Flask web app with user accounts, per-user history, and an admin dashboard.
+Authentication is hardened (see Security below), scaling past the free-tier token
+limit is handled with a bring-your-own-key option and a semantic answer cache, and
+the app is containerised with a GitHub Actions CI/CD pipeline. The remaining pieces
+are a live public deployment and the LangGraph re-implementation (see the roadmap).
 
-To be clear about what this is not: it is a working system with measured results,
-not a production service. There is no monitoring, auth, or unattended operation.
-It runs on Groq's free tier, so a full evaluation run is paced across daily token
-budgets rather than executed in one shot.
+To be clear about what this is not: it runs on Groq's free tier, so a full
+evaluation run is paced across daily token budgets rather than executed in one
+shot, and it is sized for a demo and small-team use, not high-scale production
+traffic.
 
 ## Architecture
 
@@ -151,18 +154,20 @@ below).
 ## Stack
 
 Python 3.12, PyMuPDF, sentence-transformers (BGE-small), ChromaDB, rank_bm25,
-bge-reranker cross-encoder, SQLite, Groq (gpt-oss-120b, free tier), Flask,
-Docker / AWS.
+bge-reranker cross-encoder, SQLite, Groq (gpt-oss-120b, free tier). Web app:
+Flask, Flask-Login, Flask-Limiter, bleach, itsdangerous. Deployment: Docker,
+GitHub Actions, AWS.
 
 The LLM sits behind a one-file wrapper (`src/llm.py`), so the provider is a
 single-line change. I use Groq's free tier rather than a paid API; the
 architecture is provider-agnostic.
 
-One deliberate choice worth calling out: the agent loop is hand-written on the
-LLM's tool-calling API (OpenAI-compatible), not LangChain or LangGraph. The goal
-was to understand tool calling at the API level rather than hide it behind a
-framework. A later phase re-implements it in LangGraph specifically to compare
-the two.
+One deliberate choice worth calling out: the agent loop (Part A) is hand-written on
+the LLM's tool-calling API (OpenAI-compatible), not LangChain or LangGraph, to
+understand tool calling at the API level rather than hide it behind a framework.
+Part B then re-implements the same agent as a LangGraph `StateGraph` (same model,
+tools, and prompt) so the two can be compared directly. See the Web application and
+Security sections, and `NOTES.md`, for what each approach makes easy or hard.
 
 ## Setup
 
@@ -197,32 +202,48 @@ Sanity-check any single paper against its PDF:
 python -m src.validate_parse --paper arxiv_1808.05238
 ```
 
-Ask the assistant (CLI or web UI):
+Ask the assistant on the command line:
 
 ```bash
 python -m src.agent "Which architectures report the best Dice on head and neck segmentation?"
-python -m src.app     # then open http://localhost:5000
+```
+
+Or run the web app (accounts, history, admin dashboard) and open http://localhost:5000:
+
+```bash
+python -m src.app
+```
+
+Sign up, then grant yourself the admin dashboard from the server shell (admin is
+never self-assignable through the website):
+
+```bash
+python -m src.manage_admin grant you@email.com
 ```
 
 ## Deployment
 
 Containerised with a multi-stage `Dockerfile`: CPU-only torch and the embedding
 model are baked in, but no secrets and no `data/` are, so the image stays generic.
+The corpus is mounted read-only and the user database (accounts + history) writable
+on a separate volume, so user data is never rebuilt with the index. One deployment
+subtlety learned by running it: ChromaDB needs write access to its own directory
+(SQLite locking) even to read, so that one subpath is mounted read-write while the
+rest of the corpus stays read-only.
 
-Run it locally (the Groq key comes from the environment, the index/DB is mounted):
+Run the whole thing locally with one command (reads secrets from `.env`):
 
 ```bash
-docker build -t seg-assistant .
-docker run -e GROQ_API_KEY=gsk_... -v "$(pwd)/data:/app/data:ro" -p 5000:5000 seg-assistant
+docker compose up --build     # then open http://localhost:5000
 ```
 
 CI/CD is a GitHub Actions workflow (`.github/workflows/deploy.yml`): on push to
 `main` it builds the image, pushes it to Amazon ECR, and deploys it on an EC2
 instance over SSH, finishing with a `/health` check that fails the deploy if the
-app didn't come up. Every credential (AWS keys, EC2 host/key, Groq key) lives in
-GitHub Secrets. The `data/` layer ships to the instance separately (scp or S3
-sync) and is mounted read-only, per the "don't rebuild the index in the container"
-rule.
+app didn't come up. Every credential (AWS keys, EC2 host/key, Groq key, session
+secret, SMTP) lives in GitHub Secrets. The `data/` layer ships to the instance
+separately (scp or S3 sync) and is mounted read-only, per the "don't rebuild the
+index in the container" rule. Set `HTTPS_ONLY=true` only behind a TLS terminator.
 
 The Docker and CI/CD configuration is complete and tested locally; live AWS
 provisioning is intentionally left as a manual step to avoid idle billing (set a
@@ -238,15 +259,31 @@ data/
   chunks/         final chunks with metadata
   index/          chroma collection + bm25 index
   manifest.jsonl  per-paper record + pipeline status
-  app.db          sqlite: papers + extracted metrics table
-src/              pipeline + agent code
-templates/        Flask UI (query, cited answer, collapsible trace)
+  app.db          sqlite: papers + extracted metrics table (read-only at serve time)
+  users.db        sqlite: accounts, history, answer cache (writable; gitignored)
+src/
+  parse / structure / clean / enrich / chunk / embed / index   ingestion pipeline
+  retrieve.py     vector / BM25 / hybrid / rerank search
+  extract.py      verified metric-extraction agent
+  agent.py        hand-written planning / tool-calling agent (Part A)
+  agent_langgraph.py  the same agent as a LangGraph StateGraph (Part B)
+  compare_agents.py   head-to-head: hand-written loop vs LangGraph
+  llm.py          provider wrapper (Groq; BYOK per-request key)
+  app.py          Flask web app (auth, dashboards, routes)
+  db.py           user accounts, history, and answer cache
+  qcache.py       semantic answer cache + feedback
+  security.py     rate limiting, sanitization, tokens, logging
+  manage_admin.py grant/revoke admin from the server shell
+templates/        Flask UI (dashboard, auth pages, admin, history)
 evals/            retrieval + end-to-end evaluation sets
+Dockerfile / docker-compose.yml / .github/workflows/deploy.yml
 NOTES.md          plain-language design log, the reasoning behind each decision
 ```
 
 `data/raw` is immutable on purpose: everything downstream is reproducible from
 it, so a chunking change means re-running from `parsed/`, never re-downloading.
+`users.db` is the exception: it holds real user data, so it is writable, gitignored,
+and kept on its own volume, never rebuilt with the corpus.
 
 ## Retrieval evaluation
 
@@ -314,6 +351,66 @@ system extracts; the second is how the system grades itself.
   discarded because they were not found verbatim in the source. This is the
   anti-hallucination guarantee behind the metrics table.
 
+## Web application
+
+The agent is served through a multi-user Flask app, not just a single query box:
+
+- **Accounts**: email and password signup and login, with server-side sessions.
+- **Per-user history**: every search is saved to the user's account; past questions
+  reopen their full answer or re-run.
+- **Admin dashboard**: usage analytics across all users (accounts, queries, tokens,
+  per-user activity, recent queries, cache stats). Visible only to admins, and
+  admin is granted only from the server shell (`python -m src.manage_admin grant`),
+  never through the website.
+- **Bring your own key (BYOK) + free allowance**: each user gets a few free searches
+  per day on the shared key, then adds their own free Groq key to continue without
+  limits. The key is stored only in the browser (localStorage), sent per request,
+  and never written to the database or logs. This is what lets the app scale to
+  many users past a single free-tier budget.
+- **Semantic answer cache + feedback loop**: a new question is embedded and matched
+  against previously answered ones; a close, well-rated match is served instantly
+  for zero tokens. Thumbs up/down feedback stops a bad answer from being reused, so
+  the system improves as it is used.
+
+User data lives in a separate, writable SQLite database, kept apart from the
+read-only corpus so it is never rebuilt with the index.
+
+## Security
+
+Authentication and the API surface are hardened as a deliberate exercise:
+
+- **Passwords** are salted and hashed (werkzeug); plaintext is never stored.
+- **Sessions** expire after a set idle window, with HttpOnly, SameSite, and (in
+  production) Secure cookies.
+- **Email verification** and **password reset** use signed, expiring tokens
+  (itsdangerous); expired or tampered tokens are rejected.
+- **Rate limiting** (Flask-Limiter) on login, signup, AI generation, and feedback
+  guards against brute force, abuse, and scraping.
+- **CSRF** protection on every form; **XSS** prevented by whitelist-sanitizing all
+  rendered answers (bleach); **SQL injection** prevented by parameterized queries
+  throughout (no string interpolation into SQL).
+- **Ownership checks**: history is scoped to its owner, so there is no insecure
+  direct object reference (IDOR) surface.
+- **Deployment**: HTTPS redirect + HSTS and a Content-Security-Policy plus
+  `X-Frame-Options` / `nosniff` headers when `HTTPS_ONLY` is set; secrets live only
+  in environment variables; the database is a local file, never exposed to the
+  internet; and auth attempts, admin actions, errors, and rate-limit hits are
+  written to an audit log.
+
+See `NOTES.md` for the reasoning behind each of these choices.
+
+## Tests
+
+`tests/test_app.py` is a self-contained integration suite (26 checks) covering
+auth, admin gating, BYOK and the free allowance, the semantic cache and feedback,
+and the security hardening (verification, reset, token expiry, open-redirect, XSS,
+headers, rate limiting). It runs against an isolated temp database and makes no LLM
+calls, so it is fast and free:
+
+```bash
+python tests/test_app.py
+```
+
 ## Roadmap
 
 - [x] Acquisition, manifest + dedup
@@ -326,9 +423,14 @@ system extracts; the second is how the system grades itself.
 - [x] Retrieval + labelled 52-question eval (recall@5, paper-hit@5, MRR)
 - [x] Verified metric extraction (Agent 2) into a SQLite metrics table
 - [x] Hand-written planning / tool-calling agent (no LangChain/LangGraph)
-- [x] Flask interface (query -> cited answer -> collapsible agent trace)
+- [x] Multi-user Flask app (accounts, per-user history, admin dashboard)
+- [x] Bring-your-own-key + free daily allowance (scale past the free-tier budget)
+- [x] Semantic answer cache + thumbs up/down feedback loop
+- [x] Security hardening (verification, reset, rate limiting, CSRF, XSS, headers)
 - [x] Docker image + GitHub Actions CI/CD (build -> ECR -> EC2); config ready
-- [ ] LangGraph re-implementation and a head-to-head comparison
+- [x] LangGraph re-implementation (Part B) + comparison harness (same model/tools/prompt)
+- [ ] Head-to-head numbers from the comparison run (pending a fresh token budget)
+- [ ] Live public deployment (HTTPS)
 
 ## Known limitations (so far)
 
