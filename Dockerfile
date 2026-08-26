@@ -35,6 +35,13 @@ VOLUME /app/userdata
 # Bake the embedding model into the image so there's no cold download on boot.
 RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-small-en-v1.5')"
 
+# Bake the serve-time corpus (app.db, index/, clean/, chunks/; raw/parsed/users.db
+# are excluded via .dockerignore) so the image is self-contained and runs on any
+# Docker host with no mounted volume. Copied last so corpus changes do not
+# invalidate the model-bake layer above. When a volume IS mounted (compose / EC2),
+# it simply overrides this baked copy.
+COPY data/ ./data/
+
 EXPOSE 5000
 
 # Corpus is mounted read-only at /app/data, EXCEPT the ChromaDB dir, which needs

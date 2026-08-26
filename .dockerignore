@@ -1,7 +1,13 @@
-# Keep the build context small and secrets/data out of the image.
+# Keep the build context small and secrets/user data out of the image.
+# The serve-time corpus (app.db, index/, clean/, chunks/) IS baked in so the image
+# is self-contained (runs on any Docker host with no mounted volume).
 venv/
 .venv/
-data/            # index, app.db, PDFs — mounted at runtime, not baked
+data/raw/          # 1.2 GB of source PDFs, not needed at serve time
+data/parsed/       # intermediate, not needed at serve time
+data/manifest.jsonl
+data/users.db      # user data: never bake into the image
+data/users.db-*
 .env
 .git/
 .github/

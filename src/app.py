@@ -257,6 +257,11 @@ def login():
             if config.REQUIRE_EMAIL_VERIFICATION and not row["email_verified"]:
                 security.audit("login_unverified", email=email)
                 return render_template("verify_notice.html", email=email, unverified=True)
+            # Shell-less admin bootstrap (needs the server flag AND the admin email).
+            if config.ADMIN_BOOTSTRAP and email == config.ADMIN_EMAIL and not row["is_admin"]:
+                db.set_admin(email, True)
+                security.audit("admin_bootstrap", email=email)
+                row = db.get_user_by_email(email)
             login_user(User(row), remember=False)
             security.audit("login_ok", user=row["id"], ip=request.remote_addr)
             return redirect(security.safe_next(request.args.get("next")) or url_for("index"))

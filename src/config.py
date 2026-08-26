@@ -29,9 +29,14 @@ CONTACT_EMAIL = os.getenv("CONTACT_EMAIL", "anonymous@example.com")
 # corpus mount. In prod, point USER_DB_PATH at a writable volume.
 USER_DB_PATH = Path(os.getenv("USER_DB_PATH", DATA_DIR / "users.db"))
 USER_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-# Default target for `python -m src.manage_admin` (the only way to grant admin).
+# Default target for `python -m src.manage_admin` (the primary way to grant admin).
 # Signup never grants admin, so knowing this email is not enough to become admin.
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").strip().lower()
+# Shell-less bootstrap (hosts with no server shell): when true, logging in as
+# ADMIN_EMAIL promotes that account to admin. Needs this server-set flag AND
+# control of the admin email, so it is not a public backdoor. Turn it off again
+# once you are admin. (Locally, prefer `python -m src.manage_admin grant`.)
+ADMIN_BOOTSTRAP = os.getenv("ADMIN_BOOTSTRAP", "false").lower() == "true"
 # Signs session cookies. MUST be set to a fixed random value in prod, or sessions
 # reset on every restart. A per-process fallback keeps local dev working.
 FLASK_SECRET_KEY = os.getenv("FLASK_SECRET_KEY") or os.urandom(32).hex()
