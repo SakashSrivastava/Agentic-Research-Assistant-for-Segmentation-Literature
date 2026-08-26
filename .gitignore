@@ -33,3 +33,6 @@ Thumbs.db
 .vscode/
 .claude/
 *.log
+
+# --- Personal (not for the public repo) ---
+docs/INTERVIEW_GUIDE.md
