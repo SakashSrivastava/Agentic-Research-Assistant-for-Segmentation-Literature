@@ -214,13 +214,6 @@ Or run the web app (accounts, history, admin dashboard) and open http://localhos
 python -m src.app
 ```
 
-Sign up, then grant yourself the admin dashboard from the server shell (admin is
-never self-assignable through the website):
-
-```bash
-python -m src.manage_admin grant you@email.com
-```
-
 ## Deployment
 
 Containerised with a multi-stage `Dockerfile`: CPU-only torch and the embedding
