@@ -20,17 +20,36 @@ from src import agent as A  # reuse SYSTEM, TOOLS, DISPATCH, _msg_to_dict, MAX_I
 from src import llm
 
 
+FINALIZE_PROMPT = (
+    "Stop gathering. Using ONLY the evidence already gathered above, give your best "
+    "concise final answer now, citing the paper_id for each claim. If the evidence is "
+    "insufficient for part of the question, say so explicitly.")
+
+
 class State(TypedDict):
     messages: list
     trace: Annotated[list, operator.add]   # accumulated across tool steps
     tokens_in: int
     tokens_out: int
+    iters: int
     api_key: Optional[str]
 
 
 def _llm_node(state: State) -> dict:
     """One model turn: it either asks for tools or produces the final answer."""
     msg, usage = llm.chat_tools(state["messages"], A.TOOLS, api_key=state.get("api_key"))
+    return {"messages": state["messages"] + [A._msg_to_dict(msg)],
+            "tokens_in": state["tokens_in"] + usage.prompt_tokens,
+            "tokens_out": state["tokens_out"] + usage.completion_tokens,
+            "iters": state["iters"] + 1}
+
+
+def _finalize_node(state: State) -> dict:
+    """Iteration cap reached: force a tool-free answer from the gathered evidence.
+    This is what the hand-written loop does with a plain _finalize() call; here it
+    needs its own node + edge - a concrete example of the framework trade-off."""
+    msgs = state["messages"] + [{"role": "user", "content": FINALIZE_PROMPT}]
+    msg, usage = llm.chat_tools(msgs, A.TOOLS, tool_choice="none", api_key=state.get("api_key"))
     return {"messages": state["messages"] + [A._msg_to_dict(msg)],
             "tokens_in": state["tokens_in"] + usage.prompt_tokens,
             "tokens_out": state["tokens_out"] + usage.completion_tokens}
@@ -54,8 +73,11 @@ def _tools_node(state: State) -> dict:
 
 
 def _route(state: State) -> str:
-    """Conditional edge: go run tools if the model asked for them, else stop."""
-    return "tools" if state["messages"][-1].get("tool_calls") else END
+    """Conditional edge: run tools if the model asked and we're under the iteration
+    cap; force a finalize at the cap; otherwise the model answered, so stop."""
+    if not state["messages"][-1].get("tool_calls"):
+        return END
+    return "tools" if state["iters"] < A.MAX_ITERS else "finalize"
 
 
 _GRAPH = None
@@ -67,9 +89,12 @@ def _graph():
         g = StateGraph(State)
         g.add_node("llm", _llm_node)
         g.add_node("tools", _tools_node)
+        g.add_node("finalize", _finalize_node)
         g.set_entry_point("llm")
-        g.add_conditional_edges("llm", _route, {"tools": "tools", END: END})
+        g.add_conditional_edges("llm", _route,
+                                {"tools": "tools", "finalize": "finalize", END: END})
         g.add_edge("tools", "llm")
+        g.add_edge("finalize", END)
         _GRAPH = g.compile()
     return _GRAPH
 
@@ -78,10 +103,11 @@ def answer(question: str, verbose: bool = False, api_key: str | None = None) -> 
     """Same return shape as src.agent.answer, so evals and the app can swap them."""
     init: State = {"messages": [{"role": "system", "content": A.SYSTEM},
                                 {"role": "user", "content": question}],
-                   "trace": [], "tokens_in": 0, "tokens_out": 0, "api_key": api_key}
-    # recursion_limit bounds super-steps (llm+tools ~ 2 per iteration), mirroring MAX_ITERS.
+                   "trace": [], "tokens_in": 0, "tokens_out": 0, "iters": 0, "api_key": api_key}
+    # recursion_limit bounds super-steps (llm+tools ~ 2 per iteration). Give room for
+    # MAX_ITERS iterations plus the finalize node so the graph never raises on a normal run.
     try:
-        final = _graph().invoke(init, config={"recursion_limit": A.MAX_ITERS * 2 + 2})
+        final = _graph().invoke(init, config={"recursion_limit": A.MAX_ITERS * 2 + 4})
     except Exception as ex:  # noqa: BLE001 - recursion limit or LLM unavailable
         return {"answer": f"(stopped: {str(ex)[:120]})", "trace": [], "steps": 0, "tokens": (0, 0)}
     ans = final["messages"][-1].get("content") or "(no answer produced)"

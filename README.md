@@ -428,8 +428,8 @@ python tests/test_app.py
 - [x] Semantic answer cache + thumbs up/down feedback loop
 - [x] Security hardening (verification, reset, rate limiting, CSRF, XSS, headers)
 - [x] Docker image + GitHub Actions CI/CD (build -> ECR -> EC2); config ready
-- [x] LangGraph re-implementation (Part B) + comparison harness (same model/tools/prompt)
-- [ ] Head-to-head numbers from the comparison run (pending a fresh token budget)
+- [x] LangGraph re-implementation (Part B) + comparison harness; results in `evals/agent_comparison.md`
+- [ ] Complete the conceptual-question LangGraph numbers (pending a fresh token budget)
 - [ ] Live public deployment (HTTPS)
 
 ## Known limitations (so far)
