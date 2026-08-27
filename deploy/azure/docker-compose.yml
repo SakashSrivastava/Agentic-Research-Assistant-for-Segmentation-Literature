@@ -1,0 +1,37 @@
+# Azure VM deployment: pulls the pre-built self-contained image from a registry and
+# serves it behind Caddy (automatic HTTPS via Let's Encrypt). Reads config from .env.
+#   docker compose up -d
+services:
+  web:
+    image: ${IMAGE:?set IMAGE=<registry-user>/seg-lit-assistant:latest in .env}
+    restart: unless-stopped
+    environment:
+      GROQ_API_KEY: ${GROQ_API_KEY:?set GROQ_API_KEY in .env}
+      FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:?set FLASK_SECRET_KEY in .env}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      BASE_URL: ${BASE_URL:?set BASE_URL in .env}
+      HTTPS_ONLY: "true"                     # Caddy terminates TLS and sets X-Forwarded-Proto
+      REQUIRE_EMAIL_VERIFICATION: "false"    # no SMTP in the demo; signups log in directly
+      USER_DB_PATH: /app/userdata/users.db
+    volumes:
+      - userdata:/app/userdata               # accounts + history persist on the VM disk
+    expose:
+      - "5000"                               # internal only; Caddy is the public entrypoint
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN=<your-sub>.duckdns.org in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  userdata:
+  caddy_data:
+  caddy_config:
