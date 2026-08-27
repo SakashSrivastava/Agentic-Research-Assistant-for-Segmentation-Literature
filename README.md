@@ -30,8 +30,11 @@ multi-step agent answers questions over all of it with citations, from a CLI and
 a Flask web app with user accounts, per-user history, and an admin dashboard.
 Authentication is hardened (see Security below), scaling past the free-tier token
 limit is handled with a bring-your-own-key option and a semantic answer cache, and
-the app is containerised with a GitHub Actions CI/CD pipeline. The remaining pieces
-are a live public deployment and the LangGraph re-implementation (see the roadmap).
+the app is containerised as a self-contained image and deployed live over HTTPS on
+an Azure VM behind Caddy. The agent is also re-implemented as a LangGraph graph
+(Part B) for a direct comparison with the hand-written loop. The one piece still in
+progress is finishing the conceptual-question comparison numbers, which are paced by
+the free daily token budget (see the roadmap).
 
 To be clear about what this is not: it runs on Groq's free tier, so a full
 evaluation run is paced across daily token budgets rather than executed in one
@@ -155,8 +158,8 @@ below).
 
 Python 3.12, PyMuPDF, sentence-transformers (BGE-small), ChromaDB, rank_bm25,
 bge-reranker cross-encoder, SQLite, Groq (gpt-oss-120b, free tier). Web app:
-Flask, Flask-Login, Flask-Limiter, bleach, itsdangerous. Deployment: Docker,
-GitHub Actions, AWS.
+Flask, Flask-Login, Flask-Limiter, bleach, itsdangerous. Deployment: Docker, Caddy
+(automatic Let's Encrypt HTTPS), Azure VM; GitHub Actions CI/CD.
 
 The LLM sits behind a one-file wrapper (`src/llm.py`), so the provider is a
 single-line change. I use Groq's free tier rather than a paid API; the
@@ -216,13 +219,15 @@ python -m src.app
 
 ## Deployment
 
-Containerised with a multi-stage `Dockerfile`: CPU-only torch and the embedding
-model are baked in, but no secrets and no `data/` are, so the image stays generic.
-The corpus is mounted read-only and the user database (accounts + history) writable
-on a separate volume, so user data is never rebuilt with the index. One deployment
-subtlety learned by running it: ChromaDB needs write access to its own directory
-(SQLite locking) even to read, so that one subpath is mounted read-write while the
-rest of the corpus stays read-only.
+Containerised with a multi-stage `Dockerfile`. CPU-only torch, the embedding model,
+and the serve-time corpus (`app.db`, `index/`, `clean/`, `chunks/`) are all baked in,
+so the image is **self-contained** and runs on any Docker host with no mounted volume.
+Secrets are never baked in (the Groq key and session secret come from env vars), and
+raw PDFs, intermediates, and the user database are excluded via `.dockerignore`. User
+data (accounts + history) lives on a separate writable volume (`/app/userdata`), so it
+is never rebuilt with the corpus. One subtlety learned by running it: ChromaDB needs
+write access to its own directory (SQLite locking) even to read, which the self-contained
+image handles by keeping the corpus in a writable image layer.
 
 Run the whole thing locally with one command (reads secrets from `.env`):
 
@@ -230,17 +235,21 @@ Run the whole thing locally with one command (reads secrets from `.env`):
 docker compose up --build     # then open http://localhost:5000
 ```
 
-CI/CD is a GitHub Actions workflow (`.github/workflows/deploy.yml`): on push to
-`main` it builds the image, pushes it to Amazon ECR, and deploys it on an EC2
-instance over SSH, finishing with a `/health` check that fails the deploy if the
-app didn't come up. Every credential (AWS keys, EC2 host/key, Groq key, session
-secret, SMTP) lives in GitHub Secrets. The `data/` layer ships to the instance
-separately (scp or S3 sync) and is mounted read-only, per the "don't rebuild the
-index in the container" rule. Set `HTTPS_ONLY=true` only behind a TLS terminator.
+**Live deployment.** The app is deployed live over HTTPS on an **Azure for Students**
+VM (free credit, no card). The pre-built self-contained image is published to a
+container registry (Docker Hub) and pulled on the VM, where a small `docker compose`
+stack runs it behind **Caddy** as a reverse proxy. Caddy obtains and auto-renews a free
+**Let's Encrypt** certificate for a **DuckDNS** subdomain, so the site serves valid
+HTTPS with `HTTPS_ONLY=true` (HSTS + CSP active). Verification and password-reset email
+is delivered over SMTP; admin stays locked to the owner, server-side only. A 2 GB swap
+file lets the ~1.5 GB app fit on a 1 GB free-tier VM. Full steps are in
+`deploy/azure/AZURE_DEPLOY.md`.
 
-The Docker and CI/CD configuration is complete and tested locally; live AWS
-provisioning is intentionally left as a manual step to avoid idle billing (set a
-budget alert and tear the instance down after a demo).
+Also included is a GitHub Actions workflow (`.github/workflows/deploy.yml`) as an
+alternative registry-based CI/CD path (build the image, push to Amazon ECR, deploy on
+EC2 over SSH, finishing with a `/health` gate). It is manual-trigger (`workflow_dispatch`)
+and every credential lives in GitHub Secrets; the live site uses the Docker Hub + Azure
+path above so it can be started and stopped on demand to conserve the free credit.
 
 ## Repository layout
 
@@ -422,8 +431,9 @@ python tests/test_app.py
 - [x] Security hardening (verification, reset, rate limiting, CSRF, XSS, headers)
 - [x] Docker image + GitHub Actions CI/CD (build -> ECR -> EC2); config ready
 - [x] LangGraph re-implementation (Part B) + comparison harness; results in `evals/agent_comparison.md`
+- [x] Live public deployment (HTTPS) — Azure VM + Docker + Caddy + Let's Encrypt (DuckDNS)
+- [x] Real email delivery (verification + password reset) over SMTP
 - [ ] Complete the conceptual-question LangGraph numbers (pending a fresh token budget)
-- [ ] Live public deployment (HTTPS)
 
 ## Known limitations (so far)
 

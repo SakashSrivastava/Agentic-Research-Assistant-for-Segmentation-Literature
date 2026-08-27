@@ -62,6 +62,16 @@ BASE_URL=https://seglit.duckdns.org
 GROQ_API_KEY=gsk_your_key
 FLASK_SECRET_KEY=paste_a_long_random_string
 ADMIN_EMAIL=sakashsrivastava06@gmail.com
+
+# Optional: real email for verification + password reset (Gmail example).
+# Use a 16-char Google App Password (needs 2-Step Verification on), not your
+# account password. Leave these out to fall back to showing the link in-app.
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=sakashsrivastava06@gmail.com
+SMTP_PASSWORD=your_16_char_app_password
+SMTP_FROM=SegLit Assistant <sakashsrivastava06@gmail.com>   # friendly sender name
+# REQUIRE_EMAIL_VERIFICATION=true   # optional: force new users to verify before login
 ```
 (Generate a secret with `openssl rand -hex 32`.)
 

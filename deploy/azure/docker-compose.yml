@@ -11,8 +11,16 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       BASE_URL: ${BASE_URL:?set BASE_URL in .env}
       HTTPS_ONLY: "true"                     # Caddy terminates TLS and sets X-Forwarded-Proto
-      REQUIRE_EMAIL_VERIFICATION: "false"    # no SMTP in the demo; signups log in directly
+      REQUIRE_EMAIL_VERIFICATION: ${REQUIRE_EMAIL_VERIFICATION:-false}  # flip to true once SMTP works
       USER_DB_PATH: /app/userdata/users.db
+      # Real email delivery (verification + password reset). Leave unset to fall back
+      # to showing the link in-app. For Gmail: host smtp.gmail.com, port 587, and a
+      # 16-char App Password (not your account password) as SMTP_PASSWORD.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
     volumes:
       - userdata:/app/userdata               # accounts + history persist on the VM disk
     expose:
