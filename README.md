@@ -433,7 +433,7 @@ python tests/test_app.py
 - [x] LangGraph re-implementation (Part B) + comparison harness; results in `evals/agent_comparison.md`
 - [x] Live public deployment (HTTPS) — Azure VM + Docker + Caddy + Let's Encrypt (DuckDNS)
 - [x] Real email delivery (verification + password reset) over SMTP
-- [ ] Complete the conceptual-question LangGraph numbers (pending a fresh token budget)
+- [x] Complete the conceptual-question LangGraph numbers (full 4/4 head-to-head in `evals/agent_comparison.md`)
 
 ## Known limitations (so far)
 

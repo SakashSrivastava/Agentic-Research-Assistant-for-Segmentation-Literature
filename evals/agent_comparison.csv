@@ -1,5 +1,5 @@
 id,question,hw_steps,hw_tokens,hw_latency_s,hw_ok,lg_steps,lg_tokens,lg_latency_s,lg_ok
-head_neck_dice,"Which architectures report the best Dice on head and neck segmentation, and on how many cases each?",4,7858,23.8,1,4,7959,56.0,1
-pancreas_dice,"What Dice scores are reported for pancreas segmentation, and by which methods?",2,2737,21.1,1,2,2980,9.4,1
-uncertainty,Which methods use uncertainty estimation in medical image segmentation?,8,29496,223.1,1,0,0,179.9,0
-brain_unet,Compare U-Net variants for brain tumor segmentation by Dice.,8,30343,199.9,1,0,0,177.2,0
+head_neck_dice,"Which architectures report the best Dice on head and neck segmentation, and on how many cases each?",7,17689,97.8,1,4,7952,54.5,1
+pancreas_dice,"What Dice scores are reported for pancreas segmentation, and by which methods?",2,2661,22.6,1,2,2738,17.4,1
+uncertainty,Which methods use uncertainty estimation in medical image segmentation?,8,26481,187.5,1,9,27016,170.1,1
+brain_unet,Compare U-Net variants for brain tumor segmentation by Dice.,7,18700,122.7,1,9,26049,177.6,1
